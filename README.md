@@ -12,3 +12,4 @@ AI-powered PM interview analysis. Record or paste a transcript, get detailed coa
 - `ANTHROPIC_API_KEY` — required for analysis
 - `OPENAI_API_KEY` — required for audio transcription only
 - `TURSO_DATABASE_URL` + `TURSO_AUTH_TOKEN` — from console.turso.tech
+# interview-coach
