@@ -49,7 +49,7 @@ const S = {
 const QUESTION_TYPES = [
   'Product Sense','Product Improvement','Product Redesign','Design',
   'Behavioural','Estimation','Guesstimate','Market Estimation',
-  'Strategy','Case Study','Metric','Execution',
+  'Strategy','Case Study','Metric','Execution','Technical','Other',
 ]
 
 
