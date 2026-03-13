@@ -32,7 +32,7 @@ export async function POST(request) {
     const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
     const message = await anthropic.messages.create({
       model: 'claude-haiku-4-5-20251001',
-      max_tokens: 6000,
+      max_tokens: 8192,
       tools: [TOOL],
       tool_choice: { type: 'tool', name: 'submit_segments' },
       messages: [{
@@ -49,7 +49,7 @@ Return ALL segments in order. Every answer must be preceded by a question or inf
 Do NOT truncate or stop before the end of the transcript.
 
 Transcript:
-${transcript.slice(0, 28000)}`
+${transcript.slice(0, 125000)}`
       }],
     })
     const block = message.content.find(b => b.type === 'tool_use' && b.name === 'submit_segments')
