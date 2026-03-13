@@ -278,7 +278,7 @@ export async function POST(request) {
     const hasCV = (cvText + portfolioText).trim().length > 50
 
     // 4. Build prompt with sanitised inputs
-    const safeTranscript = sanitiseInput(transcript).slice(0, 20000)
+    const safeTranscript = sanitiseInput(transcript).slice(0, 125000)
     const safeJD         = sanitiseInput(jobDescription).slice(0, 3000)
     const safeCV         = sanitiseInput(cvText).slice(0, 2000)
     const safePortfolio  = sanitiseInput(portfolioText).slice(0, 1500)
@@ -302,7 +302,7 @@ export async function POST(request) {
     try {
       message = await anthropic.messages.create({
         model: 'claude-sonnet-4-5',
-        max_tokens: 4000,
+        max_tokens: 8000,
         system: systemPrompt,
         tools: [ANALYSIS_TOOL],
         tool_choice: { type: 'tool', name: 'submit_interview_analysis' },
