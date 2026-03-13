@@ -148,39 +148,45 @@ CONTEXT
 
 QUESTION-TYPE-SPECIFIC EVALUATION RULES:
 
-GUESSTIMATE / ESTIMATION / MARKET ESTIMATION:
-- Rule 1 (Population Scoped): Did they define the base population, geography, demographic, time period before calculating?
-- Rule 2 (Layered Decomposition): Did they break the problem into logical layers (Population → Eligible → Active → Frequency) rather than jumping to the final number?
+GUESSTIMATE / ESTIMATION:
+- Rule 1 (Population Scoped): Did they define the base population, geography, demographic, and time period before calculating?
+- Rule 2 (Layered Decomposition): Did they break the problem into logical layers (Population -> Eligible -> Active -> Frequency) rather than jumping to the final number?
 - Rule 3 (Sanity Check): Did they validate the output against real-world signals? No sanity check = weak analytical discipline.
-- pmSignals keys MUST be exactly: "Population Scoped", "Layered Decomposition", "Assumption Transparency", "Sanity Check", "Reality Anchoring"
+- pmSignals keys MUST be exactly: "Population Scoped", "Layered Decomposition", "Sanity Check"
+
+MARKET ESTIMATION:
+- Rule 1 (Market Type Defined): Did they clarify whether they are estimating TAM, SAM, or SOM?
+- Rule 2 (Bottom-Up Estimation): Did they use a bottom-up approach (Users x Orders x Value) rather than top-down GDP-level assumptions?
+- Rule 3 (Reality Check): Did they compare the estimate against known market signals or benchmarks?
+- pmSignals keys MUST be exactly: "Market Type Defined", "Bottom-Up Estimation", "Reality Check"
 
 PRODUCT REDESIGN:
-- Rule 1 (Goal Clarity): Did they clarify the product goal before redesigning (engagement, conversion, retention)? Without this, redesigns are random feature lists.
-- Rule 2 (User Journey Mapped): Did they map the existing user journey and identify pain points, rather than jumping to features?
+- Rule 1 (Goal Clarity): Did they clarify the product goal (engagement, conversion, retention) before redesigning? Without this, redesigns are random feature lists.
+- Rule 2 (User Journey Mapped): Did they map the existing user journey into stages and identify pain points, rather than jumping to features?
 - Rule 3 (Depth over Breadth): Did they pick ONE core problem and go deep? Broad laundry lists are a red flag.
-- pmSignals keys MUST be exactly: "Goal Clarity", "User Journey Mapped", "Pain Point Identified", "Depth over Breadth", "Metrics Tied"
+- pmSignals keys MUST be exactly: "Goal Clarity", "User Journey Mapped", "Depth over Breadth"
 
 DESIGN / DESIGN X FOR Y:
 - Rule 1 (Job-To-Be-Done): Did they anchor on the user's primary task, not a technology feature?
-- Rule 2 (Constraints Aware): Did they show awareness of real-world constraints (connectivity, device, safety, time pressure)?
+- Rule 2 (Constraints Aware): Did they show awareness of real-world constraints (connectivity, device limitations, safety, time pressure)?
 - Rule 3 (Core Workflow Focus): Did they prioritise the main task flow over edge features?
-- pmSignals keys MUST be exactly: "Job-To-Be-Done", "User Constraints", "Core Workflow Focus", "Design Clarity", "Trade-offs"
+- pmSignals keys MUST be exactly: "Job-To-Be-Done", "Constraints Aware", "Core Workflow Focus"
 
 PRODUCT IMPROVEMENT:
 - Rule 1 (User Segment Targeted): Did they pick a specific user segment, not "everyone"? Different segments = different problems.
 - Rule 2 (Problem Before Solution): Did they identify the biggest pain point before proposing improvements?
-- Rule 3 (Metric Tied): Did they connect improvements to measurable metrics (conversion, frequency, retention)?
-- pmSignals keys MUST be exactly: "User Segment Targeted", "Problem Before Solution", "Improvement Depth", "Metrics Tied", "Prioritisation Reasoning"
+- Rule 3 (Metrics Tied): Did they connect improvements to measurable metrics (conversion, frequency, retention)?
+- pmSignals keys MUST be exactly: "User Segment Targeted", "Problem Before Solution", "Metrics Tied"
 
 PRODUCT SENSE:
 - Evaluate on: clarification, specific user definition with JTBD, problem framing before solutions, structured framework, trade-offs, measurable success metrics.
 - pmSignals keys MUST be exactly: "Clarification First", "User Specificity", "Problem Before Solution", "Structure and Framework", "Trade-offs", "Metrics Defined"
 
 PRODUCT CASE STUDY / STRATEGY:
-- Rule 1 (Problem Framed): Did they use a diagnostic structure (demand/supply/marketplace/technology) before jumping to solutions?
-- Rule 2 (Hypotheses Generated): Did they generate and then evaluate structured hypotheses rather than stating opinions?
+- Rule 1 (Problem Framing): Did they use a diagnostic structure (demand/supply/marketplace/technology) before jumping to solutions?
+- Rule 2 (Hypothesis Generation): Did they generate and then evaluate structured hypotheses rather than stating opinions?
 - Rule 3 (Focused Recommendation): Did they pick 1-2 high-impact moves with WHY, HOW, and expected impact? Strategy clarity > idea volume.
-- pmSignals keys MUST be exactly: "Problem Framing", "Hypothesis Generation", "Strategic Focus", "Business Impact", "Recommendation Clarity"
+- pmSignals keys MUST be exactly: "Problem Framing", "Hypothesis Generation", "Focused Recommendation"
 
 BEHAVIOURAL:
 - Evaluate on STAR: Situation (context), Task (their specific role), Action (what THEY did, not the team), Result (quantified outcome), Lessons learned.
@@ -189,6 +195,14 @@ BEHAVIOURAL:
 METRIC / EXECUTION:
 - Evaluate on: hypothesis formation, metric selection rationale, segmentation thinking, causal vs correlational reasoning, data intuition.
 - pmSignals keys MUST be exactly: "Hypothesis Formation", "Metric Selection", "Segmentation Thinking", "Causal Reasoning", "Data Intuition"
+
+TECHNICAL:
+- Evaluate on: clarity of explanation and technical accuracy. Did they explain the concept correctly? Is the reasoning precise and logically sound?
+- pmSignals keys MUST be exactly: "Clarity", "Accuracy"
+
+OTHER:
+- Evaluate on: structure of the answer and clarity of communication. Did they organise their response logically? Is the key point easy to identify?
+- pmSignals keys MUST be exactly: "Structure", "Clarity"
 
 META RULE (applies across ALL types) - strong answers follow this flow:
 User → Problem → Solution → Trade-offs → Metrics
@@ -220,7 +234,7 @@ const ANALYSIS_TOOL = {
           type: 'object',
           properties: {
             question:           { type: 'string' },
-            questionType:       { type: 'string', enum: ['PRODUCT SENSE', 'PRODUCT IMPROVEMENT', 'PRODUCT REDESIGN', 'DESIGN', 'BEHAVIOURAL', 'METRIC', 'ESTIMATION', 'GUESSTIMATE', 'MARKET ESTIMATION', 'STRATEGY', 'CASE STUDY', 'EXECUTION'] },
+            questionType:       { type: 'string', enum: ['PRODUCT SENSE', 'PRODUCT IMPROVEMENT', 'PRODUCT REDESIGN', 'DESIGN', 'BEHAVIOURAL', 'METRIC', 'ESTIMATION', 'GUESSTIMATE', 'MARKET ESTIMATION', 'STRATEGY', 'CASE STUDY', 'EXECUTION', 'TECHNICAL', 'OTHER'] },
             yourAnswer:         { type: 'string' },
             score:              { type: 'integer', minimum: 1, maximum: 10 },
             whatWorked:         { type: 'string' },

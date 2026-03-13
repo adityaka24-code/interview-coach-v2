@@ -39,6 +39,8 @@ export async function POST(request) {
       'BEHAVIOURAL':        'Follow STAR exactly: Situation (context) -> Task (YOUR specific role) -> Action (what YOU personally did, not the team) -> Quantified Result -> Lesson learned.',
       'METRIC':             'Form a hypothesis first. Justify metric selection. Show segmentation thinking. Demonstrate causal vs correlational reasoning.',
       'EXECUTION':          'Prioritise under constraints explicitly. Show stakeholder management thinking. Acknowledge risks.',
+      'TECHNICAL':          'Focus on technical clarity and accuracy. Structure the explanation logically, use precise terminology, and ensure correctness of reasoning.',
+      'OTHER':              'Structure the answer clearly with a logical flow. Lead with the key point, support with reasoning, and communicate concisely.',
     }
     const typeRule = TYPE_RULES[questionType] || 'Follow: User -> Problem -> Solution -> Trade-offs -> Metrics.'
 
