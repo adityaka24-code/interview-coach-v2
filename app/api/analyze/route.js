@@ -195,59 +195,7 @@ User → Problem → Solution → Trade-offs → Metrics
 Rate how well the answer follows this flow as part of every evaluation.
 
 SCORING (be honest - most real interviews score 4-7):
-9-10: Textbook answer, would hire immediately. 7-8: Strong, minor gaps. 5-6: Competent but missing key elements. 3-4: Significant structural gaps. 1-2: Misunderstands the question type entirely.
-
-CRITICAL JSON RULES - FOLLOW EXACTLY:
-- Return ONLY the raw JSON object. No markdown fences, no text before or after it.
-- Use ONLY plain ASCII punctuation. No em dashes, no curly quotes, no special Unicode characters.
-- Use a plain hyphen (-) instead of a dash.
-- Use straight double quotes only. Never use curly or smart quotes.
-- All string values must be on a single line. Use the two-character escape sequence backslash-n for line breaks. Never put actual newlines inside a JSON string.
-- Never put an unescaped double-quote character inside a string value.
-- No JavaScript comments inside the JSON.
-- No trailing commas after the last item in an object or array.
-- The response must pass JSON.parse() with zero pre-processing.
-
-{
-  "overallScore": <1-10>,
-  "overallSummary": "<3-4 sentences. One thing they did well and the single most important gap.>",
-  "interviewReadiness": "<one of: Not ready, Almost there, Ready, Strong candidate>",
-  "topStrengths": ["<specific strength with example>", "<strength>", "<strength>"],
-  "criticalGaps": ["<gap referencing principle>", "<gap>", "<gap>"],
-  "answers": [
-    {
-      "question": "<inferred question max 120 chars>",
-      "questionType": "<PRODUCT SENSE | PRODUCT IMPROVEMENT | PRODUCT REDESIGN | DESIGN | BEHAVIOURAL | METRIC | ESTIMATION | GUESSTIMATE | MARKET ESTIMATION | STRATEGY | CASE STUDY | EXECUTION>",
-      "yourAnswer": "<brief neutral summary max 150 chars>",
-      "score": <1-10>,
-      "whatWorked": "<specific thing that landed>",
-      "whatMissed": "<the single most important gap>",
-      "principleViolations": ["<e.g. No clarifying questions (Principle 1)>"],
-      "cvOpportunity": "<exact project or metric from CV they should have cited, or empty string>",
-      "jdRelevance": "<which JD requirement this addressed or missed, or empty string>",
-      "pmSignals": {
-        "<label matching type>": <1-5>
-      }
-    }
-  ],
-  "topPriorityFix": "<single highest-leverage thing to practice>",
-  "practiceplan": ["<specific drill with example question>", "<drill>", "<drill>"],
-  "fillerWords": ["<word: count and impact>"],
-  "recurringPattern": "<most important pattern across all answers>",
-  "inferredQuestions": ["<clean question text>"],
-  "annotatedTranscript": [
-    {"text": "<exact words from transcript>", "sentiment": "good"},
-    {"text": "<exact words from transcript>", "sentiment": "neutral"},
-    {"text": "<exact words>", "sentiment": "improve"},
-    {"text": "<exact words>", "sentiment": "bad"}
-  ]
-}
-Sentiment rules for annotatedTranscript:
-- "good"    = strong PM thinking, concrete data, clear structure, good frameworks used
-- "improve" = vague, missing metric/data, weak structure but on the right track
-- "bad"     = wrong direction, missed the point, over-apologising, no structure
-- "neutral" = interviewer questions, filler transitions, setup phrases
-Cover every single word — concatenating all texts must reconstruct the full transcript exactly.`
+9-10: Textbook answer, would hire immediately. 7-8: Strong, minor gaps. 5-6: Competent but missing key elements. 3-4: Significant structural gaps. 1-2: Misunderstands the question type entirely.`
 }
 
 // ---------------------------------------------------------------------------
@@ -281,7 +229,6 @@ const ANALYSIS_TOOL = {
             cvOpportunity:      { type: 'string' },
             jdRelevance:        { type: 'string' },
             pmSignals:          { type: 'object', additionalProperties: { type: 'integer', minimum: 1, maximum: 5 } },
-            rewrittenAnswer:    { type: 'string' },
           },
           required: ['question', 'questionType', 'score', 'whatWorked', 'whatMissed', 'pmSignals'],
         },
@@ -291,20 +238,8 @@ const ANALYSIS_TOOL = {
       fillerWords:     { type: 'array', items: { type: 'string' } },
       recurringPattern:{ type: 'string' },
       inferredQuestions:{ type: 'array', items: { type: 'string' } },
-      annotatedTranscript: {
-        type: 'array',
-        description: 'Full transcript split into spans with sentiment. Cover every word, no gaps.',
-        items: {
-          type: 'object',
-          properties: {
-            text:      { type: 'string' },
-            sentiment: { type: 'string', enum: ['good','improve','bad','neutral'] },
-          },
-          required: ['text','sentiment'],
-        },
-      },
     },
-    required: ['overallScore','overallSummary','interviewReadiness','topStrengths','criticalGaps','answers','topPriorityFix','annotatedTranscript'],
+    required: ['overallScore','overallSummary','interviewReadiness','topStrengths','criticalGaps','answers','topPriorityFix'],
   },
 }
 
@@ -367,7 +302,7 @@ export async function POST(request) {
     try {
       message = await anthropic.messages.create({
         model: 'claude-sonnet-4-5',
-        max_tokens: 16000,
+        max_tokens: 4000,
         system: systemPrompt,
         tools: [ANALYSIS_TOOL],
         tool_choice: { type: 'tool', name: 'submit_interview_analysis' },
