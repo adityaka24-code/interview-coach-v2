@@ -55,11 +55,34 @@ function SignalBar({ label, value, max=5 }) {
   )
 }
 
+// Normalise rewrite text: convert literal \n sequences → real newlines, render **bold**
+function renderRewrite(raw) {
+  const text = raw.replace(/\\n/g, '\n').replace(/\\t/g, ' ')
+  return text.split(/\n\n+/).map((para, pi) => {
+    if (!para.trim()) return null
+    const parts = para.split(/\*\*(.*?)\*\*/g)
+    return (
+      <p key={pi} style={{margin: pi === 0 ? 0 : '10px 0 0', lineHeight: 1.8}}>
+        {parts.map((part, i) => i % 2 === 1 ? <strong key={i}>{part}</strong> : part)}
+      </p>
+    )
+  })
+}
+
 function AnswerCard({ answer, index, metadata }) {
   const [open, setOpen] = useState(false)
   const [rewrite, setRewrite] = useState(answer.rewrittenAnswer || null)
   const [rewriteLoading, setRewriteLoading] = useState(false)
   const [rewriteError, setRewriteError] = useState(null)
+  const [copied, setCopied] = useState(false)
+
+  function copyRewrite() {
+    if (!rewrite) return
+    navigator.clipboard.writeText(rewrite).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
 
   async function fetchRewrite() {
     setRewriteLoading(true)
@@ -96,16 +119,18 @@ function AnswerCard({ answer, index, metadata }) {
         <div style={{width:34,height:34,borderRadius:8,background:'var(--surface2)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'var(--font-size-sm)',fontWeight:'bold',color:sc,flexShrink:0}}>
           {answer.score}
         </div>
-        {answer.questionType&&(
-          <span style={{flexShrink:0,padding:'3px 9px',borderRadius:20,fontSize:11,fontFamily:'DM Mono',letterSpacing:'0.3px',whiteSpace:'nowrap',background:'rgba(160,118,249,0.1)',border:'1px solid rgba(160,118,249,0.25)',color:'#a78bfa'}}>
-            {answer.questionType}
-          </span>
-        )}
         <div style={{flex:1,minWidth:0}}>
-          <div style={{fontSize:'var(--font-size-base)',color:'var(--text)',marginBottom:3,fontFamily:'Open Sans, sans-serif',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+          <div style={{fontSize:'var(--font-size-base)',color:'var(--text)',marginBottom:5,fontFamily:'Open Sans, sans-serif',fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
             Q{index+1}: {answer.question}
           </div>
-          <div style={{fontSize:'var(--font-size-xs)',color:'var(--text-muted)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{answer.yourAnswer}</div>
+          <div style={{display:'flex',alignItems:'center',gap:8,minWidth:0}}>
+            {answer.questionType&&(
+              <span style={{flexShrink:0,padding:'2px 8px',borderRadius:20,fontSize:10,fontFamily:'DM Mono',letterSpacing:'0.5px',whiteSpace:'nowrap',textTransform:'uppercase',background:'rgba(160,118,249,0.12)',border:'1px solid rgba(160,118,249,0.3)',color:'#a78bfa'}}>
+                {answer.questionType}
+              </span>
+            )}
+            <span style={{fontSize:'var(--font-size-xs)',color:'var(--text-muted)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{answer.yourAnswer}</span>
+          </div>
         </div>
         <span style={{fontSize:17,color:'var(--text-muted)',flexShrink:0}} aria-hidden>{open?'↑':'↓'}</span>
       </button>
@@ -139,25 +164,34 @@ function AnswerCard({ answer, index, metadata }) {
           )}
           <div style={{marginBottom:16}}>
             <div style={{...S.section,marginBottom:10}}>PM signals</div>
-            <SignalBar label="STAR Structure" value={answer.pmSignals?.starStructure||0}/>
-            <SignalBar label="Data & Metrics" value={answer.pmSignals?.dataMetrics||0}/>
-            <SignalBar label="Customer Empathy" value={answer.pmSignals?.customerEmpathy||0}/>
-            <SignalBar label="Tradeoffs" value={answer.pmSignals?.tradeoffs||0}/>
-            <SignalBar label="Impact" value={answer.pmSignals?.impact||0}/>
+            {Object.entries(answer.pmSignals||{}).map(([label, value])=>(
+              <SignalBar key={label} label={label} value={value||0}/>
+            ))}
           </div>
           <div>
             <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
               <div style={{...S.section,color:'var(--accent)'}}>✦ Rewritten answer</div>
-              {!rewrite&&!rewriteLoading&&(
-                <button onClick={fetchRewrite}
-                  style={{padding:'5px 14px',borderRadius:8,border:'1px solid rgba(99,179,237,0.3)',
-                    background:'rgba(99,179,237,0.06)',color:'var(--accent)',fontFamily:'DM Mono',
-                    fontSize:'var(--font-size-xs)',cursor:'pointer',transition:'all 0.15s'}}
-                  onMouseEnter={e=>{e.currentTarget.style.background='rgba(99,179,237,0.12)'}}
-                  onMouseLeave={e=>{e.currentTarget.style.background='rgba(99,179,237,0.06)'}}>
-                  Generate →
-                </button>
-              )}
+              <div style={{display:'flex',gap:6}}>
+                {rewrite&&(
+                  <button onClick={copyRewrite} aria-label="Copy rewritten answer"
+                    style={{padding:'5px 12px',borderRadius:8,border:'1px solid rgba(104,211,145,0.3)',
+                      background: copied?'rgba(104,211,145,0.12)':'rgba(104,211,145,0.06)',
+                      color: copied?'#68d391':'var(--text-muted)',fontFamily:'DM Mono',
+                      fontSize:'var(--font-size-xs)',cursor:'pointer',transition:'all 0.15s'}}>
+                    {copied ? '✓ Copied' : '⎘ Copy'}
+                  </button>
+                )}
+                {!rewrite&&!rewriteLoading&&(
+                  <button onClick={fetchRewrite}
+                    style={{padding:'5px 14px',borderRadius:8,border:'1px solid rgba(99,179,237,0.3)',
+                      background:'rgba(99,179,237,0.06)',color:'var(--accent)',fontFamily:'DM Mono',
+                      fontSize:'var(--font-size-xs)',cursor:'pointer',transition:'all 0.15s'}}
+                    onMouseEnter={e=>{e.currentTarget.style.background='rgba(99,179,237,0.12)'}}
+                    onMouseLeave={e=>{e.currentTarget.style.background='rgba(99,179,237,0.06)'}}>
+                    Generate →
+                  </button>
+                )}
+              </div>
             </div>
             {rewriteLoading&&(
               <div style={{padding:'12px 14px',background:'rgba(99,179,237,0.03)',border:'1px solid rgba(99,179,237,0.1)',borderRadius:8,fontSize:'var(--font-size-xs)',color:'var(--accent)',fontFamily:'DM Mono'}}>
@@ -170,8 +204,8 @@ function AnswerCard({ answer, index, metadata }) {
               </div>
             )}
             {rewrite&&(
-              <blockquote style={{background:'rgba(99,179,237,0.04)',border:'1px solid rgba(99,179,237,0.15)',borderRadius:8,padding:14,fontSize:'var(--font-size-sm)',lineHeight:1.8,color:'var(--text)',fontFamily:'Montserrat',fontStyle:'italic',margin:0}}>
-                {rewrite}
+              <blockquote style={{background:'rgba(99,179,237,0.04)',border:'1px solid rgba(99,179,237,0.15)',borderRadius:8,padding:14,fontSize:'var(--font-size-sm)',color:'var(--text)',fontFamily:'Montserrat',fontStyle:'italic',margin:0}}>
+                {renderRewrite(rewrite)}
               </blockquote>
             )}
             {!rewrite&&!rewriteLoading&&!rewriteError&&(
@@ -186,116 +220,87 @@ function AnswerCard({ answer, index, metadata }) {
   )
 }
 
-const PROC_STAGES = [
-  { at: 0,  label: 'Analysing responses…',      sub: 'Reading your transcript carefully' },
-  { at: 7,  label: 'Scoring answers…',           sub: 'Evaluating PM signals per question' },
-  { at: 15, label: 'Creating report…',           sub: 'Identifying patterns, gaps & strengths' },
-  { at: 24, label: 'Almost there…',              sub: 'Putting the final touches on your report' },
-]
-
-function ProcessingScreen({ procStep, onCancel }) {
-  const [elapsed, setElapsed] = useState(0)
-  const [stageIdx, setStageIdx] = useState(0)
-  const TOTAL = 30
+function CountdownScreen() {
+  const [count, setCount] = useState(5)
   const RADIUS = 54
   const CIRC = 2 * Math.PI * RADIUS
 
   useEffect(() => {
-    const t = setInterval(() => setElapsed(e => Math.min(e + 1, TOTAL + 15)), 1000)
-    return () => clearInterval(t)
-  }, [])
+    if (count <= 0) return
+    const t = setTimeout(() => setCount(c => c - 1), 1000)
+    return () => clearTimeout(t)
+  }, [count])
 
-  useEffect(() => {
-    const idx = [...PROC_STAGES].reverse().findIndex(s => elapsed >= s.at)
-    if (idx !== -1) setStageIdx(PROC_STAGES.length - 1 - idx)
-  }, [elapsed])
-
-  const remaining = Math.max(0, TOTAL - elapsed)
-  const pct = Math.min(1, elapsed / TOTAL)
-  const stage = PROC_STAGES[stageIdx]
-  const displayLabel = procStep === 'Transcribing with Whisper...' && elapsed < 5 ? 'Transcribing audio…' : stage.label
+  const pct = (5 - count) / 5
 
   return (
-    <div style={{textAlign:'center',animation:'fadeUp 0.5s ease',paddingTop:60,paddingBottom:40,maxWidth:420,margin:'0 auto'}} aria-live="polite">
-
-      {/* Timer ring */}
-      <div style={{position:'relative',width:140,height:140,margin:'0 auto 36px'}}>
-        <svg width="140" height="140" style={{transform:'rotate(-90deg)'}}>
-          {/* Track */}
-          <circle cx="70" cy="70" r={RADIUS} fill="none" stroke="var(--surface2)" strokeWidth="5"/>
-          {/* Fill arc */}
-          <circle cx="70" cy="70" r={RADIUS} fill="none"
-            stroke="var(--accent)" strokeWidth="5" strokeLinecap="round"
+    <div style={{textAlign:'center',animation:'fadeUp 0.5s ease',paddingTop:72,paddingBottom:40,maxWidth:380,margin:'0 auto'}} aria-live="polite">
+      {/* Ring + countdown */}
+      <div style={{position:'relative',width:160,height:160,margin:'0 auto 40px'}}>
+        <svg width="160" height="160" style={{transform:'rotate(-90deg)'}}>
+          <circle cx="80" cy="80" r={RADIUS} fill="none" stroke="var(--surface2)" strokeWidth="6"/>
+          <circle cx="80" cy="80" r={RADIUS} fill="none"
+            stroke="var(--accent)" strokeWidth="6" strokeLinecap="round"
             strokeDasharray={CIRC}
             strokeDashoffset={CIRC * (1 - pct)}
             style={{transition:'stroke-dashoffset 1s linear'}}
           />
-          {/* Inner pulse ring */}
-          <circle cx="70" cy="70" r="42" fill="none" stroke="rgba(99,179,237,0.12)" strokeWidth="2"
-            style={{animation:'pulse-ring 2s ease-out infinite'}}
-          />
         </svg>
-        {/* Countdown number */}
         <div style={{position:'absolute',inset:0,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center'}}>
-          <span style={{fontFamily:'DM Mono',fontSize:36,fontWeight:'bold',color:'var(--text)',lineHeight:1,fontVariantNumeric:'tabular-nums'}}>
-            {remaining > 0 ? remaining : '✓'}
+          <span style={{fontFamily:'DM Mono',fontSize:52,fontWeight:'bold',color:'var(--text)',lineHeight:1,fontVariantNumeric:'tabular-nums'}}>
+            {count > 0 ? count : '✓'}
           </span>
-          <span style={{fontFamily:'DM Mono',fontSize:11,color:'var(--text-muted)',letterSpacing:'1px',marginTop:2}}>
-            {remaining > 0 ? 'seconds' : 'done'}
+          <span style={{fontFamily:'DM Mono',fontSize:11,color:'var(--text-muted)',letterSpacing:'1px',marginTop:4}}>
+            {count > 0 ? 'seconds' : 'done'}
           </span>
         </div>
       </div>
-
-      {/* Stage heading */}
-      <h2 key={stageIdx} style={{fontFamily:'Montserrat',fontSize:28,fontWeight:'normal',color:'var(--text)',marginBottom:8,letterSpacing:'-0.3px',animation:'fadeUp 0.4s ease'}}>
-        {displayLabel}
+      <h2 style={{fontFamily:'Montserrat',fontSize:26,fontWeight:600,color:'var(--text)',marginBottom:10,letterSpacing:'-0.3px'}}>
+        Building your report
       </h2>
-      <p key={`sub-${stageIdx}`} style={{color:'var(--text-muted)',fontSize:'var(--font-size-sm)',lineHeight:1.7,marginBottom:40,animation:'fadeUp 0.4s ease'}}>
-        {stage.sub}
+      <p style={{color:'var(--text-muted)',fontSize:'var(--font-size-sm)',lineHeight:1.7}}>
+        Analysing your answers in parallel — your report will appear momentarily.
       </p>
-
-      {/* Step checklist */}
-      <div style={{display:'inline-flex',flexDirection:'column',gap:10,textAlign:'left'}}>
-        {PROC_STAGES.map((s, i) => {
-          const done = i < stageIdx
-          const active = i === stageIdx
-          return (
-            <div key={i} style={{display:'flex',alignItems:'center',gap:10,opacity:done||active?1:0.3,transition:'opacity 0.4s ease'}}>
-              <div style={{
-                width:20, height:20, borderRadius:'50%', flexShrink:0,
-                border:`2px solid ${done?'#68d391':active?'var(--accent)':'var(--border)'}`,
-                background:done?'rgba(104,211,145,0.15)':active?'rgba(99,179,237,0.1)':'transparent',
-                display:'flex', alignItems:'center', justifyContent:'center',
-                transition:'all 0.4s ease',
-              }}>
-                {done
-                  ? <span style={{fontSize:11,color:'#68d391'}}>✓</span>
-                  : active
-                    ? <div style={{width:6,height:6,borderRadius:'50%',background:'var(--accent)',animation:'blink 1.2s infinite'}}/>
-                    : null
-                }
-              </div>
-              <span style={{fontFamily:'DM Mono',fontSize:'var(--font-size-xs)',color:done?'#68d391':active?'var(--text)':'var(--text-muted)',transition:'color 0.4s ease'}}>
-                {s.label}
-              </span>
-            </div>
-          )
-        })}
-      </div>
-
-      <p style={{marginTop:36,fontSize:11,color:'var(--text-muted)',fontFamily:'DM Mono',letterSpacing:'1px',opacity:0.6}}>
-        Taking longer? Your report is still being generated.
-      </p>
-      {onCancel&&(
-        <button onClick={onCancel}
-          style={{marginTop:20,background:'transparent',border:'1px solid var(--border)',color:'var(--text-muted)',
-            padding:'6px 18px',borderRadius:20,fontSize:'var(--font-size-xs)',fontFamily:'DM Mono',cursor:'pointer'}}>
-          ← Cancel
-        </button>
-      )}
     </div>
   )
 }
+
+function CompletionToast({ onDismiss }) {
+  const DURATION = 5000
+  const [width, setWidth] = useState(100)
+
+  useEffect(() => {
+    const start = Date.now()
+    const raf = () => {
+      const elapsed = Date.now() - start
+      const remaining = Math.max(0, 100 - (elapsed / DURATION) * 100)
+      setWidth(remaining)
+      if (elapsed < DURATION) requestAnimationFrame(raf)
+      else onDismiss()
+    }
+    const id = requestAnimationFrame(raf)
+    return () => cancelAnimationFrame(id)
+  }, [])
+
+  return (
+    <div style={{
+      position:'fixed', bottom:24, right:24, zIndex:1000,
+      background:'var(--card-bg)', border:'1px solid rgba(104,211,145,0.35)',
+      borderRadius:12, padding:'14px 18px', minWidth:260,
+      boxShadow:'0 8px 32px rgba(0,0,0,0.35)', animation:'fadeUp 0.35s ease',
+    }} role="status" aria-live="polite">
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:6}}>
+        <span style={{fontSize:16,color:'#68d391'}}>✓</span>
+        <span style={{fontFamily:'Montserrat',fontWeight:600,fontSize:14,color:'#68d391'}}>Report ready</span>
+      </div>
+      <p style={{fontSize:12,color:'var(--text-muted)',margin:'0 0 10px',lineHeight:1.5}}>Your interview analysis is complete.</p>
+      <div style={{height:2,background:'rgba(104,211,145,0.12)',borderRadius:1}}>
+        <div style={{height:'100%',width:`${width}%`,background:'#68d391',borderRadius:1}}/>
+      </div>
+    </div>
+  )
+}
+
 
 function Waveform({ paused }) {
   return (
@@ -491,7 +496,7 @@ function ReportTeaser() {
           borderRadius:20, padding:'5px 12px', fontSize:11, color:'#7ee8a2',
           fontFamily:'DM Mono', fontWeight:'bold', display:'flex', alignItems:'center', gap:5 }}>
           <span style={{ animation:'blink 1.5s infinite', display:'inline-block', width:6, height:6, borderRadius:'50%', background:'#7ee8a2' }}/>
-          ⚡ 30 secs
+          ⚡ ~2 mins
         </div>
       </div>
 
@@ -581,7 +586,6 @@ function ReportTeaser() {
               { icon:'🎯', color:'#7ec8f7', title:'Scores on every answer',    desc:'Each response scored 0–10. Know exactly which answers are interview-ready and which will cost you the offer.' },
               { icon:'📊', color:'#7ee8a2', title:'PM signal bars',             desc:'Customer Empathy, Data, Execution, Strategy, Communication — scored per question. See your PM fingerprint.' },
               { icon:'✦',  color:'#a78bfa', title:'AI answer rewrite',          desc:'One click shows how a top PM would have answered. A benchmark to aim for, not a script to copy.' },
-              { icon:'🔴', color:'#ff8f8f', title:'Word-level annotation',      desc:'Every word colour-coded — green (strong), yellow (vague), red (missed). Pinpoint exactly what to fix.' },
               { icon:'📋', color:'#fbc26a', title:'Targeted practice plan',     desc:'3 custom drills based on your lowest-scoring answers. Move the needle, not just check a box.' },
               { icon:'⬇️', color:'#7ec8f7', title:'PDF report download',        desc:'Save it, share with a coach, or pull it up before your next round.' },
             ].map(({icon,color,title,desc})=>(
@@ -609,6 +613,48 @@ function ReportTeaser() {
   )
 }
 
+
+// ── Classifying Loader ────────────────────────────────────────────────────────
+const CLASSIFY_STEPS = [
+  'Identifying questions',
+  'Identifying responses',
+  'Linking responses to questions',
+]
+
+function ClassifyingLoader() {
+  const [step, setStep] = useState(0)
+  const [visible, setVisible] = useState(true)
+
+  useEffect(() => {
+    const cycle = () => {
+      // fade out, advance step, fade in
+      setVisible(false)
+      setTimeout(() => {
+        setStep(s => (s + 1) % CLASSIFY_STEPS.length)
+        setVisible(true)
+      }, 350)
+    }
+    const id = setInterval(cycle, 3000)
+    return () => clearInterval(id)
+  }, [])
+
+  return (
+    <div style={{ textAlign:'center', padding:'60px 0' }}>
+      <div style={{ width:36, height:36, border:'2px solid var(--border)', borderTopColor:'var(--accent)',
+        borderRadius:'50%', animation:'spin 0.8s linear infinite', margin:'0 auto 20px' }}/>
+      <p style={{
+        fontFamily:'DM Mono', fontSize:'var(--font-size-sm)', color:'var(--accent)',
+        transition:'opacity 0.35s ease', opacity: visible ? 1 : 0,
+        minHeight:'1.4em', margin:'0 0 10px',
+      }}>
+        {CLASSIFY_STEPS[step]}
+      </p>
+      <p style={{ fontFamily:'DM Mono', fontSize:'var(--font-size-xs)', color:'var(--text-muted)', margin:0 }}>
+        This usually takes less than 20 seconds
+      </p>
+    </div>
+  )
+}
 
 // ── Transcript Review Component ───────────────────────────────────────────────
 function TranscriptReview({ segments, setSegments, classifying, classifyError, onContinue, onBack }) {
@@ -796,13 +842,7 @@ function TranscriptReview({ segments, setSegments, classifying, classifyError, o
           ))}
         </div>
 
-        {classifying && (
-          <div style={{ textAlign:'center', padding:'60px 0', color:'var(--text-muted)' }}>
-            <div style={{ width:36, height:36, border:'2px solid var(--border)', borderTopColor:'var(--accent)',
-              borderRadius:'50%', animation:'spin 0.8s linear infinite', margin:'0 auto 16px' }}/>
-            <p style={{ fontFamily:'DM Mono', fontSize:'var(--font-size-sm)' }}>Classifying transcript…</p>
-          </div>
-        )}
+        {classifying && <ClassifyingLoader />}
 
         {classifyError && (
           <div style={{ background:'rgba(255,143,143,0.05)', border:'1px solid rgba(255,143,143,0.2)',
@@ -1025,7 +1065,6 @@ export default function Home() {
   const [submittedMetadata, setSubmittedMetadata] = useState(null)
   const [transcript, setTranscript] = useState('')
   const [pasted, setPasted] = useState('')
-  const [showTranscript, setShowTranscript] = useState(false)
   const [error, setError] = useState('')
   const [audioBlob, setAudioBlob] = useState(null)
   const [interviewId, setInterviewId] = useState(null)
@@ -1035,6 +1074,11 @@ export default function Home() {
   const [segments, setSegments] = useState([])
   const [classifying, setClassifying] = useState(false)
   const [classifyError, setClassifyError] = useState('')
+  const [reportReady, setReportReady] = useState(false)
+  const [reportComplete, setReportComplete] = useState(false)
+  const [showCompletionToast, setShowCompletionToast] = useState(false)
+  const [failedQuestions, setFailedQuestions] = useState([])
+  const countdownTimerRef = useRef(null)
 
   const [meta, setMeta] = useState({
     company:'', role:'', location:'', experienceYears:'', roundType:'',
@@ -1191,7 +1235,16 @@ export default function Home() {
 
   const analyze = async () => {
     if (!meta.company||!meta.role||!meta.experienceYears) { setError('Company, role, and experience are required'); return }
-    setError(''); setStage('processing')
+    setError('')
+    setReportReady(false)
+    setReportComplete(false)
+    setShowCompletionToast(false)
+    setAnalysis(null)
+    setStage('countdown')
+
+    // Switch to report screen after 5 s countdown (API call runs in parallel)
+    countdownTimerRef.current = setTimeout(() => setStage('report'), 5000)
+
     const metadata = {
       company:meta.company, role:meta.role, location:meta.location, experienceYears:meta.experienceYears, roundType:meta.roundType||'unknown',
       salaryMin:meta.salaryMin?parseInt(meta.salaryMin):null,
@@ -1210,20 +1263,43 @@ export default function Home() {
           }).join('\n\n')
         : pasted
       setTranscript(finalTranscript)
-      setProcStep('Analyzing with Claude...')
-      const r = await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({transcript:finalTranscript,metadata})})
+      const r = await fetch('/api/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        transcript: finalTranscript,
+        segments: segments.length > 0 ? segments : undefined,
+        metadata,
+      })})
       const d = await r.json()
       if (d.error) throw new Error(d.error)
-      setProcStep('Done!')
+
       setAnalysis(d.analysis); setInterviewId(d.interviewId); setSubmittedMetadata(metadata)
-      setTimeout(()=>setStage('report'),400)
-    } catch(e) { setError(e.message); setStage('details') }
+      setFailedQuestions(d.failedQuestions || [])
+
+      // Ensure we're on the report screen (cancels countdown timer if still running)
+      clearTimeout(countdownTimerRef.current)
+      setStage('report')
+
+      // Small pause then trigger staggered section reveals.
+      // Always mark complete once the API returns — report is done regardless of
+      // per-answer failures (those show their own warning). Never stay on "Completing…".
+      setTimeout(() => {
+        setReportReady(true)
+        setReportComplete(true)
+        if (d.allAnswersComplete) {
+          setTimeout(() => setShowCompletionToast(true), 2000)
+        }
+      }, 200)
+    } catch(e) {
+      clearTimeout(countdownTimerRef.current)
+      setError(e.message); setStage('details')
+    }
   }
 
   const reset = () => {
+    clearTimeout(countdownTimerRef.current)
     setStage('record'); setAnalysis(null); setAudioBlob(null)
     setRecTime(0); setPasted(''); setInputMode('paste'); setInterviewId(null); setError('')
     setRecState('idle'); setSegments([]); setClassifyError('')
+    setReportReady(false); setReportComplete(false); setShowCompletionToast(false); setFailedQuestions([])
     setTooltip(null); setAddingAfter(null); setNewQText('')
     setMeta({company:'',role:'',location:'',experienceYears:'',roundType:'',salaryMin:'',salaryMax:'',salaryCurrency:'USD',jobDescription:'',jobUrl:'',cvText:'',portfolioText:''})
   }
@@ -1398,7 +1474,7 @@ export default function Home() {
                   Beta · PM Interview Coach
                 </span>
                 <span style={{background:'rgba(104,211,145,0.1)',border:'1px solid rgba(104,211,145,0.25)',borderRadius:20,padding:'4px 14px',fontSize:'var(--font-size-xs)',color:'#68d391',letterSpacing:'1px',fontFamily:'DM Mono',display:'flex',alignItems:'center',gap:5}}>
-                  <span style={{fontSize:11}}>⚡</span> Report in ~30 secs
+                  <span style={{fontSize:11}}>⚡</span> Report in ~2 mins
                 </span>
               </div>
               <h1 style={{fontFamily:'Montserrat',fontSize:'clamp(32px,4vw,52px)',fontWeight:800,color:'var(--text)',marginBottom:12,letterSpacing:'-1px',lineHeight:1.15}}>
@@ -1406,145 +1482,161 @@ export default function Home() {
                 <span style={{color:'var(--accent)'}}>Land the PM role.</span>
               </h1>
               <p style={{color:'var(--text-muted)',fontSize:'var(--font-size-sm)',lineHeight:1.8,maxWidth:440,margin:'0 auto'}}>
-                Paste your transcript or record live — get a full AI coaching report in under 30 seconds.
+                Paste your transcript or record live — get a full AI coaching report in under 2 minutes.
               </p>
             </div>
 
             {/* ── Two-column layout ─────────────────────────────────────────── */}
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:32,alignItems:'start'}}>
 
-              {/* LEFT: Input controls — paste primary, mic expands inline */}
+              {/* LEFT: Input controls */}
               <div>
-                {/* Heading row with mic button */}
-                <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:14,gap:12}}>
-                  <div>
-                    <h2 style={{fontFamily:'Montserrat',fontSize:22,fontWeight:700,color:'var(--text)',margin:'0 0 4px'}}>
-                      Paste your transcript
-                    </h2>
-                    <p style={{fontSize:'var(--font-size-sm)',color:'var(--text-muted)',margin:0,lineHeight:1.55}}>
-                      Drop in the raw conversation — any format. Claude figures out the rest.
-                    </p>
-                  </div>
-                  {/* Mic button — toggles inline recorder */}
-                  {recState==='idle'&&!audioBlob&&(
-                    <button
-                      onClick={()=>setInputMode(m=>m==='record'?'paste':'record')}
-                      aria-label={inputMode==='record'?'Close recorder':'Open recorder'}
-                      title={inputMode==='record'?'Close recorder':'Record or upload audio instead'}
+                {/* ── Mode toggle tabs ── */}
+                <div style={{display:'flex',gap:4,marginBottom:16,background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:4}}>
+                  {[
+                    {mode:'paste',  icon:'📝', label:'Paste transcript'},
+                    {mode:'record', icon:'🎙️', label:'Record / Upload'},
+                  ].map(({mode,icon,label})=>(
+                    <button key={mode}
+                      onClick={()=>{if(recState==='idle')setInputMode(mode)}}
+                      aria-pressed={inputMode===mode}
                       style={{
-                        flexShrink:0,width:44,height:44,borderRadius:12,
-                        border:`1px solid ${inputMode==='record'?'var(--accent)':'var(--border)'}`,
-                        background:inputMode==='record'?'rgba(126,200,247,0.1)':'var(--surface)',
-                        color:inputMode==='record'?'var(--accent)':'var(--text-muted)',
-                        fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',
-                        transition:'all 0.2s',
+                        flex:1, padding:'10px 8px', borderRadius:8, border:'none', cursor: recState!=='idle'&&mode!==inputMode ?'not-allowed':'pointer',
+                        background: inputMode===mode ? (mode==='record'?'rgba(126,200,247,0.14)':'rgba(126,200,247,0.18)') : 'transparent',
+                        color: inputMode===mode ? (mode==='record'?'var(--accent)':'var(--text)') : 'var(--text-muted)',
+                        fontFamily:'DM Mono', fontSize:'var(--font-size-xs)', fontWeight: inputMode===mode ? 700 : 400,
+                        transition:'all 0.18s', display:'flex', alignItems:'center', justifyContent:'center', gap:6,
+                        outline: inputMode===mode ? '1px solid rgba(126,200,247,0.25)' : 'none',
+                        opacity: recState!=='idle'&&mode!==inputMode ? 0.4 : 1,
                       }}>
-                      🎙️
+                      <span style={{fontSize:15}}>{icon}</span> {label}
                     </button>
-                  )}
+                  ))}
                 </div>
 
-                {/* ── Inline recorder — expands when mic clicked ── */}
-                {inputMode==='record'&&(
-                  <div style={{
-                    marginBottom:14,
-                    background:'var(--surface)',
-                    border:`1px solid ${recState!=='idle'?'rgba(252,77,109,0.4)':'rgba(126,200,247,0.2)'}`,
-                    borderRadius:14,padding:'18px 20px',
-                    transition:'border-color 0.3s',position:'relative',overflow:'hidden',
-                    animation:'fadeUp 0.2s ease',
-                  }}>
-                    {recState!=='idle'&&<div style={{position:'absolute',inset:0,pointerEvents:'none',background:'radial-gradient(circle at center, rgba(252,77,109,0.03) 0%, transparent 70%)'}} aria-hidden/>}
-
-                    {/* Idle — start recording or upload */}
-                    {recState==='idle'&&!audioBlob&&(
-                      <div style={{display:'flex',alignItems:'center',gap:16}}>
-                        <button onClick={startRec} aria-label="Start recording"
-                          style={{width:50,height:50,borderRadius:'50%',background:'linear-gradient(135deg,var(--accent),#4299e1)',border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:20,boxShadow:'0 0 16px rgba(99,179,237,0.2)',flexShrink:0}}>
-                          🎙️
-                        </button>
-                        <div style={{flex:1}}>
-                          <p style={{fontSize:'var(--font-size-sm)',color:'var(--text)',fontWeight:600,margin:'0 0 2px',fontFamily:'Montserrat'}}>Record live</p>
-                          <p style={{fontSize:'var(--font-size-xs)',color:'var(--text-muted)',margin:0}}>Your mic only — no consent issues</p>
-                        </div>
-                        <div style={{width:1,height:32,background:'var(--border)',flexShrink:0}}/>
-                        <button onClick={()=>fileRef.current?.click()}
-                          style={{padding:'8px 14px',border:'1px dashed var(--border)',borderRadius:8,background:'transparent',color:'var(--text-muted)',fontFamily:'DM Mono',fontSize:'var(--font-size-xs)',cursor:'pointer',whiteSpace:'nowrap',transition:'border-color 0.2s,color 0.2s'}}
-                          onMouseEnter={e=>{e.currentTarget.style.borderColor='var(--accent)';e.currentTarget.style.color='var(--accent)'}}
-                          onMouseLeave={e=>{e.currentTarget.style.borderColor='var(--border)';e.currentTarget.style.color='var(--text-muted)'}}>
-                          ↑ Upload file
-                        </button>
+                {/* ── PASTE TAB ── */}
+                {inputMode==='paste'&&(
+                  <>
+                    <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,overflow:'hidden',marginBottom:12}}>
+                      <div style={{padding:'8px 14px',borderBottom:'1px solid var(--border)',fontSize:'var(--font-size-xs)',color:'var(--text-muted)',letterSpacing:'1.5px',textTransform:'uppercase',display:'flex',justifyContent:'space-between',alignItems:'center',fontFamily:'DM Mono'}}>
+                        <span>Transcript</span>
+                        {(()=>{const wc=pasted.trim().split(/\s+/).filter(Boolean).length;return(
+                        <span style={{color:wc>25000?'var(--danger)':wc>100?'var(--accent2)':'var(--text-muted)',fontVariantNumeric:'tabular-nums'}}>
+                          {wc.toLocaleString()} / 25,000 words
+                        </span>)})()}
                       </div>
+                      <textarea value={pasted} onChange={e=>setPasted(e.target.value)} aria-label="Interview transcript"
+                        placeholder={"Interviewer: Tell me about a product you launched.\n\nMe: At Razorpay I led the launch of payment links...\n\nInterviewer: How do you prioritise your roadmap?\n\nMe: I use a combination of impact vs effort..."}
+                        style={{...S.input,height:260,resize:'vertical',border:'none',borderRadius:0,lineHeight:1.75,padding:16,fontFamily:'Open Sans, sans-serif',fontSize:'var(--font-size-base)'}}/>
+                    </div>
+                    {(()=>{const wc=pasted.trim().split(/\s+/).filter(Boolean).length;const tooLong=wc>25000;const tooShort=pasted.trim().length<50;return(
+                    <button onClick={()=>goDetails(null)} disabled={tooShort||tooLong}
+                      style={{width:'100%',padding:'13px',
+                        background:(!tooShort&&!tooLong)?'linear-gradient(135deg,var(--accent),#4299e1)':'var(--surface2)',
+                        border:'none',borderRadius:'var(--radius)',
+                        color:(!tooShort&&!tooLong)?'#0a0a0f':'var(--text-muted)',
+                        fontSize:'var(--font-size-base)',fontFamily:'DM Mono',fontWeight:'bold',
+                        cursor:(!tooShort&&!tooLong)?'pointer':'not-allowed',transition:'all 0.2s'}}>
+                      {tooLong?`Over limit — remove ${(wc-25000).toLocaleString()} words`:tooShort?`Need ${Math.max(0,50-pasted.trim().length)} more chars...`:'Analyse Interview →'}
+                    </button>
+                    )})()}
+                  </>
+                )}
+
+                {/* ── RECORD / UPLOAD TAB ── */}
+                {inputMode==='record'&&(
+                  <div style={{animation:'fadeUp 0.2s ease'}}>
+                    <input ref={fileRef} type="file" accept="audio/*" onChange={e=>{if(e.target.files[0])goDetails(e.target.files[0])}} style={{display:'none'}} aria-hidden/>
+
+                    {/* Idle — show record + upload options */}
+                    {recState==='idle'&&!audioBlob&&(
+                      <>
+                        {/* Record live card */}
+                        <div style={{background:'var(--surface)',border:'1px solid rgba(126,200,247,0.2)',borderRadius:14,padding:'22px 20px',marginBottom:10,display:'flex',alignItems:'center',gap:18}}>
+                          <button onClick={startRec} aria-label="Start recording"
+                            style={{width:56,height:56,borderRadius:'50%',background:'linear-gradient(135deg,var(--accent),#4299e1)',border:'none',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontSize:24,boxShadow:'0 0 20px rgba(99,179,237,0.25)',flexShrink:0,transition:'transform 0.15s'}}>
+                            🎙️
+                          </button>
+                          <div>
+                            <p style={{fontSize:'var(--font-size-sm)',color:'var(--text)',fontWeight:700,margin:'0 0 3px',fontFamily:'Montserrat'}}>Record live</p>
+                            <p style={{fontSize:'var(--font-size-xs)',color:'var(--text-muted)',margin:0,lineHeight:1.5}}>Your mic only — no consent issues.<br/>Works mid-interview too.</p>
+                          </div>
+                        </div>
+
+                        {/* Divider */}
+                        <div style={{display:'flex',alignItems:'center',gap:10,margin:'12px 0'}}>
+                          <div style={{flex:1,height:1,background:'var(--border)'}}/>
+                          <span style={{fontSize:'var(--font-size-xs)',color:'var(--text-muted)',fontFamily:'DM Mono',letterSpacing:'1px'}}>OR</span>
+                          <div style={{flex:1,height:1,background:'var(--border)'}}/>
+                        </div>
+
+                        {/* Upload card */}
+                        <button onClick={()=>fileRef.current?.click()}
+                          style={{width:'100%',background:'var(--surface)',border:'1px dashed var(--border)',borderRadius:14,padding:'20px',cursor:'pointer',textAlign:'center',transition:'border-color 0.2s,background 0.2s'}}
+                          onMouseEnter={e=>{e.currentTarget.style.borderColor='var(--accent)';e.currentTarget.style.background='rgba(126,200,247,0.04)'}}
+                          onMouseLeave={e=>{e.currentTarget.style.borderColor='var(--border)';e.currentTarget.style.background='var(--surface)'}}>
+                          <div style={{fontSize:28,marginBottom:8}}>↑</div>
+                          <p style={{fontFamily:'DM Mono',fontSize:'var(--font-size-sm)',color:'var(--text)',fontWeight:600,margin:'0 0 4px'}}>Upload audio file</p>
+                          <p style={{fontFamily:'DM Mono',fontSize:'var(--font-size-xs)',color:'var(--text-muted)',margin:0}}>MP3 · M4A · WAV · MP4 · WebM · OGG</p>
+                        </button>
+                      </>
                     )}
 
                     {/* Recording / paused */}
                     {recState!=='idle'&&(
-                      <div style={{display:'flex',alignItems:'center',gap:14}}>
-                        <Waveform paused={recState==='paused'}/>
-                        <div style={{fontSize:22,fontWeight:'bold',color:recState==='paused'?'var(--text-muted)':'var(--recording)',fontFamily:'DM Mono'}} aria-live="polite">
-                          {fmtTime(recTime)}
+                      <div style={{background:'var(--surface)',border:'1px solid rgba(252,77,109,0.35)',borderRadius:14,padding:'20px',position:'relative',overflow:'hidden'}}>
+                        <div style={{position:'absolute',inset:0,pointerEvents:'none',background:'radial-gradient(circle at center, rgba(252,77,109,0.03) 0%, transparent 70%)'}} aria-hidden/>
+                        <div style={{display:'flex',alignItems:'center',gap:14,marginBottom:16}}>
+                          <Waveform paused={recState==='paused'}/>
+                          <div style={{fontSize:26,fontWeight:'bold',color:recState==='paused'?'var(--text-muted)':'var(--recording)',fontFamily:'DM Mono'}} aria-live="polite">
+                            {fmtTime(recTime)}
+                          </div>
+                          <span style={{fontSize:'var(--font-size-xs)',color:'var(--text-muted)',flex:1,fontFamily:'DM Mono',animation:recState==='paused'?'none':'blink 1.5s infinite'}}>
+                            {recState==='paused'?'⏸ Paused':'● Recording'}
+                          </span>
                         </div>
-                        <span style={{fontSize:'var(--font-size-xs)',color:'var(--text-muted)',flex:1,fontFamily:'DM Mono',animation:recState==='paused'?'none':'blink 1.5s infinite'}}>
-                          {recState==='paused'?'⏸ Paused':'● Recording'}
-                        </span>
-                        <button onClick={recState==='paused'?resumeRec:pauseRec}
-                          style={{padding:'7px 14px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface2)',color:'var(--text)',fontFamily:'DM Mono',fontSize:'var(--font-size-xs)',cursor:'pointer'}}>
-                          {recState==='paused'?'▶ Resume':'⏸ Pause'}
-                        </button>
-                        <button onClick={stopRec}
-                          style={{padding:'7px 16px',borderRadius:8,border:'none',background:'linear-gradient(135deg,var(--recording),#e03050)',color:'#fff',fontFamily:'DM Mono',fontSize:'var(--font-size-xs)',fontWeight:'bold',cursor:'pointer'}}>
-                          ⬛ Stop
-                        </button>
+                        <div style={{display:'flex',gap:8}}>
+                          <button onClick={recState==='paused'?resumeRec:pauseRec}
+                            style={{flex:1,padding:'9px',borderRadius:8,border:'1px solid var(--border)',background:'var(--surface2)',color:'var(--text)',fontFamily:'DM Mono',fontSize:'var(--font-size-xs)',cursor:'pointer'}}>
+                            {recState==='paused'?'▶ Resume':'⏸ Pause'}
+                          </button>
+                          <button onClick={stopRec}
+                            style={{flex:1,padding:'9px',borderRadius:8,border:'none',background:'linear-gradient(135deg,var(--recording),#e03050)',color:'#fff',fontFamily:'DM Mono',fontSize:'var(--font-size-xs)',fontWeight:'bold',cursor:'pointer'}}>
+                            ⬛ Stop recording
+                          </button>
+                        </div>
                       </div>
                     )}
 
-                    {/* Finished */}
+                    {/* Recording finished — ready to analyse */}
                     {recState==='idle'&&audioBlob&&(
-                      <div style={{display:'flex',alignItems:'center',gap:14}}>
-                        <span style={{fontSize:22,color:'var(--accent2)'}}>✓</span>
-                        <p style={{fontSize:'var(--font-size-sm)',color:'var(--accent2)',margin:0,flex:1}}>
-                          Recorded {fmtTime(recTime)} — ready
-                        </p>
+                      <>
+                        <div style={{background:'var(--surface)',border:'1px solid rgba(104,211,145,0.3)',borderRadius:14,padding:'16px 20px',marginBottom:12,display:'flex',alignItems:'center',gap:12}}>
+                          <span style={{fontSize:22,color:'var(--accent2)',flexShrink:0}}>✓</span>
+                          <p style={{fontSize:'var(--font-size-sm)',color:'var(--accent2)',margin:0,flex:1,fontFamily:'DM Mono'}}>
+                            Recording ready · {fmtTime(recTime)}
+                          </p>
+                          <button onClick={discardRec}
+                            style={{padding:'6px 12px',borderRadius:8,border:'1px solid var(--border)',background:'transparent',color:'var(--text-muted)',fontFamily:'DM Mono',fontSize:'var(--font-size-xs)',cursor:'pointer'}}>
+                            Discard
+                          </button>
+                        </div>
                         <button onClick={()=>goDetails(audioBlob)}
-                          style={{padding:'8px 20px',borderRadius:8,border:'none',background:'linear-gradient(135deg,var(--accent),#4299e1)',color:'#0a0a0f',fontFamily:'DM Mono',fontSize:'var(--font-size-xs)',fontWeight:'bold',cursor:'pointer'}}>
-                          Continue →
+                          style={{width:'100%',padding:'13px',background:'linear-gradient(135deg,var(--accent),#4299e1)',border:'none',borderRadius:'var(--radius)',color:'#0a0a0f',fontSize:'var(--font-size-base)',fontFamily:'DM Mono',fontWeight:'bold',cursor:'pointer',transition:'opacity 0.2s'}}>
+                          Analyse Interview →
                         </button>
-                        <button onClick={discardRec}
-                          style={{padding:'8px 12px',borderRadius:8,border:'1px solid var(--border)',background:'transparent',color:'var(--text-muted)',fontFamily:'DM Mono',fontSize:'var(--font-size-xs)',cursor:'pointer'}}>
-                          Discard
-                        </button>
-                      </div>
+                      </>
                     )}
 
-                    <input ref={fileRef} type="file" accept="audio/*" onChange={e=>{if(e.target.files[0])goDetails(e.target.files[0])}} style={{display:'none'}} aria-hidden/>
+                    {/* Disabled analyse placeholder when nothing recorded yet */}
+                    {recState==='idle'&&!audioBlob&&(
+                      <button disabled style={{width:'100%',padding:'13px',marginTop:10,background:'var(--surface2)',border:'none',borderRadius:'var(--radius)',color:'var(--text-muted)',fontSize:'var(--font-size-base)',fontFamily:'DM Mono',fontWeight:'bold',cursor:'not-allowed'}}>
+                        Record or upload to continue
+                      </button>
+                    )}
                   </div>
                 )}
 
-                {/* ── Paste textarea — always visible ── */}
-                <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,overflow:'hidden',marginBottom:12}}>
-                  <div style={{padding:'8px 14px',borderBottom:'1px solid var(--border)',fontSize:'var(--font-size-xs)',color:'var(--text-muted)',letterSpacing:'1.5px',textTransform:'uppercase',display:'flex',justifyContent:'space-between',alignItems:'center',fontFamily:'DM Mono'}}>
-                    <span>Transcript</span>
-                    {(()=>{const wc=pasted.trim().split(/\s+/).filter(Boolean).length;return(
-                    <span style={{color:wc>25000?'var(--danger)':wc>100?'var(--accent2)':'var(--text-muted)',fontVariantNumeric:'tabular-nums'}}>
-                      {wc.toLocaleString()} / 25,000 words
-                    </span>)})()}
-                  </div>
-                  <textarea value={pasted} onChange={e=>setPasted(e.target.value)} aria-label="Interview transcript"
-                    placeholder={"Interviewer: Tell me about a product you launched.\n\nMe: At Razorpay I led the launch of payment links...\n\nInterviewer: How do you prioritise your roadmap?\n\nMe: I use a combination of impact vs effort..."}
-                    style={{...S.input,height:240,resize:'vertical',border:'none',borderRadius:0,lineHeight:1.75,padding:16,fontFamily:'Open Sans, sans-serif',fontSize:'var(--font-size-base)'}}/>
-                </div>
-
-                {(()=>{const wc=pasted.trim().split(/\s+/).filter(Boolean).length;const tooLong=wc>25000;const tooShort=pasted.trim().length<50;return(
-                <button onClick={()=>goDetails(null)} disabled={tooShort||tooLong}
-                  style={{width:'100%',padding:'13px',
-                    background:(!tooShort&&!tooLong)?'linear-gradient(135deg,var(--accent),#4299e1)':'var(--surface2)',
-                    border:'none',borderRadius:'var(--radius)',
-                    color:(!tooShort&&!tooLong)?'#0a0a0f':'var(--text-muted)',
-                    fontSize:'var(--font-size-base)',fontFamily:'DM Mono',fontWeight:'bold',
-                    cursor:(!tooShort&&!tooLong)?'pointer':'not-allowed',transition:'all 0.2s'}}>
-                  {tooLong?`Over limit — remove ${(wc-25000).toLocaleString()} words`:tooShort?`Need ${Math.max(0,50-pasted.trim().length)} more chars...`:'Analyse Interview →'}
-                </button>
-                )})()}
 
                 {error&&<p role="alert" style={{marginTop:14,padding:'10px 14px',background:'rgba(252,129,129,0.05)',border:'1px solid rgba(252,129,129,0.2)',borderRadius:8,fontSize:'var(--font-size-sm)',color:'var(--danger)'}}>⚠ {error}</p>}
               </div>{/* /LEFT */}
@@ -1701,115 +1793,170 @@ export default function Home() {
           </div>
         )}
 
-        {/* ── PROCESSING ─────────────────────────────────────────────────── */}
-        {stage==='processing'&&(
-          <ProcessingScreen procStep={procStep} onCancel={()=>{setStage('details');setError('')}}/>
-        )}
+        {/* ── COUNTDOWN ───────────────────────────────────────────────────── */}
+        {stage==='countdown'&&<CountdownScreen/>}
 
         {/* ── REPORT ─────────────────────────────────────────────────────── */}
-        {stage==='report'&&analysis&&(
-          <div style={{animation:'fadeUp 0.5s ease'}}>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:18}}>
-              <div>
-                <p style={{fontSize:'var(--font-size-xs)',color:'var(--text-muted)',letterSpacing:'2px',textTransform:'uppercase',marginBottom:4}}>{meta.company} · {meta.role}</p>
-                <h2 style={{fontFamily:'Montserrat',fontSize:24,fontWeight:'normal',color:'var(--text)'}}>Interview Report</h2>
-              </div>
+        {stage==='report'&&(
+          <div style={{animation:'fadeUp 0.4s ease'}}>
+          {/* Waiting for API while already past countdown */}
+          {!analysis&&(
+            <div style={{textAlign:'center',padding:'80px 0',color:'var(--text-muted)'}}>
+              <div style={{fontSize:28,marginBottom:14,animation:'pulse-ring 1.5s ease-out infinite',display:'inline-block'}}>◌</div>
+              <p style={{fontFamily:'DM Mono',fontSize:'var(--font-size-sm)',letterSpacing:'0.5px'}}>Finalizing your report…</p>
+            </div>
+          )}
+          {analysis&&(<div style={{animation:'fadeUp 0.4s ease'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:18}}>
+              <h2 style={{fontFamily:'Montserrat',fontSize:22,fontWeight:'normal',color:'var(--text)',margin:0}}>Interview Report</h2>
               <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                {!reportComplete&&(
+                  <span style={{fontFamily:'DM Mono',fontSize:'var(--font-size-xs)',color:'var(--text-muted)',display:'flex',alignItems:'center',gap:6}}>
+                    <span style={{animation:'blink 1.2s infinite',display:'inline-block',width:6,height:6,borderRadius:'50%',background:'var(--accent)'}}/>
+                    Completing…
+                  </span>
+                )}
                 {interviewId&&<Link href={`/history/${interviewId}`} style={{background:'transparent',border:'1px solid var(--border)',color:'var(--text-muted)',padding:'7px 14px',borderRadius:20,fontSize:'var(--font-size-xs)',fontFamily:'DM Mono',textDecoration:'none'}}>History</Link>}
-                <button onClick={downloadPDF}
-                  style={{background:'rgba(104,211,145,0.12)',border:'1px solid rgba(104,211,145,0.4)',color:'#68d391',padding:'7px 16px',borderRadius:20,fontSize:'var(--font-size-xs)',cursor:'pointer',fontFamily:'DM Mono',fontWeight:'bold',transition:'all 0.15s'}}
-                  onMouseEnter={e=>{e.currentTarget.style.background='rgba(104,211,145,0.22)'}}
-                  onMouseLeave={e=>{e.currentTarget.style.background='rgba(104,211,145,0.12)'}}>
-                  ↓ PDF
+                <button onClick={reportComplete ? downloadPDF : undefined} disabled={!reportComplete}
+                  title={reportComplete ? 'Download PDF' : 'Waiting for all answers to complete…'}
+                  style={{
+                    background: reportComplete ? 'rgba(104,211,145,0.12)' : 'rgba(104,211,145,0.04)',
+                    border: `1px solid ${reportComplete ? 'rgba(104,211,145,0.4)' : 'rgba(104,211,145,0.15)'}`,
+                    color: reportComplete ? '#68d391' : 'rgba(104,211,145,0.35)',
+                    padding:'7px 16px',borderRadius:20,fontSize:'var(--font-size-xs)',
+                    cursor: reportComplete ? 'pointer' : 'not-allowed',
+                    fontFamily:'DM Mono',fontWeight:'bold',transition:'all 0.3s',
+                  }}
+                  onMouseEnter={e=>{ if(reportComplete) e.currentTarget.style.background='rgba(104,211,145,0.22)' }}
+                  onMouseLeave={e=>{ if(reportComplete) e.currentTarget.style.background='rgba(104,211,145,0.12)' }}>
+                  {reportComplete ? '↓ PDF' : '⌛ PDF'}
                 </button>
                 <button onClick={reset} style={{background:'transparent',border:'1px solid var(--border)',color:'var(--text-muted)',padding:'7px 14px',borderRadius:20,fontSize:'var(--font-size-xs)',cursor:'pointer',fontFamily:'DM Mono'}}>← New</button>
               </div>
             </div>
 
-            <div id="report-pdf-root">
-            {/* Score */}
+            {/* Helper: fade+slide up with staggered delay based on section index */}
             {(()=>{
+              const rev = (i) => ({
+                opacity: reportReady ? 1 : 0,
+                transform: reportReady ? 'translateY(0)' : 'translateY(18px)',
+                transition: `opacity 0.55s ease ${i*140}ms, transform 0.55s ease ${i*140}ms`,
+              })
               const sc=analysis.overallScore
               const col=sc>=7?'#68d391':sc>=5?'#f6ad55':'#fc8181'
               const label=sc>=7?'Strong candidate':sc>=5?'Almost there':'Needs work'
+              const m = submittedMetadata || {}
               return (
-                <div style={{background:'var(--surface)',border:`2px solid ${col}30`,borderRadius:14,padding:'22px',marginBottom:14,display:'flex',gap:24,alignItems:'flex-start'}}>
-                  {/* Big score block */}
-                  <div style={{flexShrink:0,textAlign:'center',minWidth:90}}>
-                    <div style={{fontSize:56,fontWeight:800,fontFamily:'Montserrat',color:col,lineHeight:1}}>{sc}<span style={{fontSize:22,fontWeight:500,color:'var(--text-muted)'}}>/10</span></div>
-                    <div style={{marginTop:6,fontSize:11,fontWeight:700,letterSpacing:'1.5px',textTransform:'uppercase',color:col,background:`${col}18`,border:`1px solid ${col}40`,borderRadius:20,padding:'3px 10px',display:'inline-block'}}>{label}</div>
+                <div id="report-pdf-root">
+                {/* Section 0 — Interview metadata */}
+                <div style={rev(0)}>
+                  <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:'14px 18px',marginBottom:14,display:'flex',flexWrap:'wrap',gap:'10px 24px',alignItems:'center'}}>
+                    {m.company&&<span style={{fontFamily:'Montserrat',fontWeight:700,fontSize:15,color:'var(--text)'}}>{m.company}</span>}
+                    {m.role&&<span style={{fontSize:'var(--font-size-sm)',color:'var(--text-secondary)'}}>{m.role}</span>}
+                    {m.roundType&&<span style={{fontSize:'var(--font-size-xs)',color:'var(--text-muted)',background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:20,padding:'2px 10px'}}>{m.roundType}</span>}
+                    {m.experienceYears&&<span style={{fontSize:'var(--font-size-xs)',color:'var(--text-muted)'}}>{m.experienceYears} yrs exp</span>}
+                    {m.location&&<span style={{fontSize:'var(--font-size-xs)',color:'var(--text-muted)'}}>📍 {m.location}</span>}
+                    {(m.salaryMin||m.salaryMax)&&(
+                      <span style={{fontSize:'var(--font-size-xs)',color:'var(--text-muted)'}}>
+                        💰 {m.salaryCurrency||'USD'} {m.salaryMin&&m.salaryMax ? `${m.salaryMin}–${m.salaryMax}` : m.salaryMin||m.salaryMax}
+                      </span>
+                    )}
                   </div>
-                  {/* Summary */}
-                  <blockquote style={{fontSize:15,color:'var(--text-body)',lineHeight:1.8,fontFamily:'Open Sans, sans-serif',fontStyle:'italic',fontWeight:500,margin:0,borderLeft:`3px solid ${col}50`,paddingLeft:16}}>
-                    "{analysis.overallSummary}"
-                  </blockquote>
+                </div>
+
+                {/* Section 1 — Score */}
+                <div style={rev(1)}>
+                  <div style={{background:'var(--surface)',border:`2px solid ${col}30`,borderRadius:14,padding:'22px',marginBottom:14,display:'flex',gap:24,alignItems:'flex-start'}}>
+                    <div style={{flexShrink:0,textAlign:'center',minWidth:90}}>
+                      <div style={{fontSize:56,fontWeight:800,fontFamily:'Montserrat',color:col,lineHeight:1}}>{sc}<span style={{fontSize:22,fontWeight:500,color:'var(--text-muted)'}}>/10</span></div>
+                      <div style={{marginTop:6,fontSize:11,fontWeight:700,letterSpacing:'1.5px',textTransform:'uppercase',color:col,background:`${col}18`,border:`1px solid ${col}40`,borderRadius:20,padding:'3px 10px',display:'inline-block'}}>{label}</div>
+                    </div>
+                    <blockquote style={{fontSize:15,color:'var(--text-body)',lineHeight:1.8,fontFamily:'Open Sans, sans-serif',fontStyle:'italic',fontWeight:500,margin:0,borderLeft:`3px solid ${col}50`,paddingLeft:16}}>
+                      "{analysis.overallSummary}"
+                    </blockquote>
+                  </div>
+                </div>
+
+                {/* Section 2 — Strengths + Gaps */}
+                <div style={rev(2)}>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:14}}>
+                    <div style={{background:'var(--surface)',border:'1px solid rgba(104,211,145,0.15)',borderRadius:'var(--radius)',padding:16}}>
+                      <p style={{fontSize:'var(--font-size-xs)',color:'#68d391',letterSpacing:'1.5px',textTransform:'uppercase',marginBottom:10}}>✦ Strengths</p>
+                      {analysis.topStrengths?.map((s,i)=><p key={i} style={{display:'flex',gap:8,marginBottom:8,fontSize:'var(--font-size-sm)',color:'var(--text)',lineHeight:1.5}}><span style={{color:'#68d391',flexShrink:0}}>→</span>{s}</p>)}
+                    </div>
+                    <div style={{background:'var(--surface)',border:'1px solid rgba(252,129,129,0.15)',borderRadius:'var(--radius)',padding:16}}>
+                      <p style={{fontSize:'var(--font-size-xs)',color:'#fc8181',letterSpacing:'1.5px',textTransform:'uppercase',marginBottom:10}}>✗ Critical Gaps</p>
+                      {analysis.criticalGaps?.map((g,i)=><p key={i} style={{display:'flex',gap:8,marginBottom:8,fontSize:'var(--font-size-sm)',color:'var(--text)',lineHeight:1.5}}><span style={{color:'#fc8181',flexShrink:0}}>→</span>{g}</p>)}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Section 3 — Priority Fix */}
+                {analysis.topPriorityFix&&(
+                  <div style={rev(3)}>
+                    <div style={{background:'rgba(246,173,85,0.05)',border:'1px solid rgba(246,173,85,0.15)',borderRadius:'var(--radius)',padding:'12px 16px',marginBottom:14,display:'flex',gap:10,alignItems:'flex-start'}}>
+                      <span aria-hidden>⚡</span>
+                      <div>
+                        <p style={{fontSize:'var(--font-size-xs)',color:'var(--warning)',letterSpacing:'1.5px',textTransform:'uppercase',marginBottom:4}}>#1 Fix</p>
+                        <p style={{fontSize:'var(--font-size-sm)',color:'var(--text)',lineHeight:1.6}}>{analysis.topPriorityFix}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Section 4 — Recurring Pattern */}
+                {analysis.recurringPattern&&(
+                  <div style={rev(4)}>
+                    <div style={{background:'rgba(167,139,250,0.05)',border:'1px solid rgba(167,139,250,0.15)',borderRadius:'var(--radius)',padding:'12px 16px',marginBottom:14,fontSize:'var(--font-size-sm)',color:'var(--text)',lineHeight:1.6}}>
+                      <span style={{fontSize:'var(--font-size-xs)',color:'#a78bfa',letterSpacing:'1.5px',textTransform:'uppercase',display:'block',marginBottom:4}}>Pattern</span>
+                      {analysis.recurringPattern}
+                    </div>
+                  </div>
+                )}
+
+                {/* Section 5+ — Answer cards (each staggered) */}
+                <div style={rev(5)}>
+                  <p style={{...S.section,marginBottom:12}}>Answer breakdown — click to expand</p>
+                </div>
+                {analysis.answers?.map((a,i)=>(
+                  <div key={i} style={rev(6+i)}>
+                    <AnswerCard answer={a} index={i} metadata={submittedMetadata}/>
+                  </div>
+                ))}
+
+
+                {/* Failed questions notice */}
+                {failedQuestions.length > 0 && (
+                  <div style={{...rev(7+(analysis.answers?.length||0)), marginTop:24, padding:'16px 20px', background:'rgba(252,129,129,0.07)', border:'1px solid rgba(252,129,129,0.3)', borderRadius:10}}>
+                    <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:10}}>
+                      <span style={{fontSize:16}}>⚠</span>
+                      <span style={{fontFamily:'Montserrat',fontWeight:700,fontSize:'var(--font-size-sm)',color:'#fc8181'}}>
+                        {failedQuestions.length} question{failedQuestions.length>1?'s':''} could not be rated
+                      </span>
+                    </div>
+                    <p style={{fontSize:'var(--font-size-xs)',color:'var(--text-muted)',margin:'0 0 10px'}}>
+                      The following question{failedQuestions.length>1?'s':''} failed after 3 attempts and {failedQuestions.length>1?'were':'was'} excluded from the report. Try re-analysing if you need feedback on {failedQuestions.length>1?'them':'it'}.
+                    </p>
+                    <ol style={{margin:0,paddingLeft:18,display:'flex',flexDirection:'column',gap:6}}>
+                      {failedQuestions.map(fq => (
+                        <li key={fq.index} style={{fontSize:'var(--font-size-xs)',color:'var(--text-secondary)',lineHeight:1.5}}>
+                          <span style={{fontFamily:'DM Mono',color:'#fc8181',marginRight:6}}>Q{fq.index}.</span>
+                          {fq.question}
+                        </li>
+                      ))}
+                    </ol>
+                  </div>
+                )}
+
                 </div>
               )
             })()}
-
-            {/* Strengths + gaps */}
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:14}}>
-              <div style={{background:'var(--surface)',border:'1px solid rgba(104,211,145,0.15)',borderRadius:'var(--radius)',padding:16}}>
-                <p style={{fontSize:'var(--font-size-xs)',color:'#68d391',letterSpacing:'1.5px',textTransform:'uppercase',marginBottom:10}}>✦ Strengths</p>
-                {analysis.topStrengths?.map((s,i)=><p key={i} style={{display:'flex',gap:8,marginBottom:8,fontSize:'var(--font-size-sm)',color:'var(--text)',lineHeight:1.5}}><span style={{color:'#68d391',flexShrink:0}}>→</span>{s}</p>)}
-              </div>
-              <div style={{background:'var(--surface)',border:'1px solid rgba(252,129,129,0.15)',borderRadius:'var(--radius)',padding:16}}>
-                <p style={{fontSize:'var(--font-size-xs)',color:'#fc8181',letterSpacing:'1.5px',textTransform:'uppercase',marginBottom:10}}>✗ Critical Gaps</p>
-                {analysis.criticalGaps?.map((g,i)=><p key={i} style={{display:'flex',gap:8,marginBottom:8,fontSize:'var(--font-size-sm)',color:'var(--text)',lineHeight:1.5}}><span style={{color:'#fc8181',flexShrink:0}}>→</span>{g}</p>)}
-              </div>
-            </div>
-
-            {analysis.topPriorityFix&&(
-              <div style={{background:'rgba(246,173,85,0.05)',border:'1px solid rgba(246,173,85,0.15)',borderRadius:'var(--radius)',padding:'12px 16px',marginBottom:14,display:'flex',gap:10,alignItems:'flex-start'}}>
-                <span aria-hidden>⚡</span>
-                <div>
-                  <p style={{fontSize:'var(--font-size-xs)',color:'var(--warning)',letterSpacing:'1.5px',textTransform:'uppercase',marginBottom:4}}>#1 Fix</p>
-                  <p style={{fontSize:'var(--font-size-sm)',color:'var(--text)',lineHeight:1.6}}>{analysis.topPriorityFix}</p>
-                </div>
-              </div>
-            )}
-
-            {analysis.recurringPattern&&(
-              <div style={{background:'rgba(167,139,250,0.05)',border:'1px solid rgba(167,139,250,0.15)',borderRadius:'var(--radius)',padding:'12px 16px',marginBottom:14,fontSize:'var(--font-size-sm)',color:'var(--text)',lineHeight:1.6}}>
-                <span style={{fontSize:'var(--font-size-xs)',color:'#a78bfa',letterSpacing:'1.5px',textTransform:'uppercase',display:'block',marginBottom:4}}>Pattern</span>
-                {analysis.recurringPattern}
-              </div>
-            )}
-
-            <div style={{marginBottom:14}}>
-              <p style={{...S.section,marginBottom:12}}>Answer breakdown — click to expand</p>
-              {analysis.answers?.map((a,i)=><AnswerCard key={i} answer={a} index={i} metadata={submittedMetadata}/>)}
-            </div>
-
-            {/* Annotated transcript */}
-            <div style={{marginBottom:14}}>
-              <button onClick={()=>setShowTranscript(!showTranscript)} aria-expanded={showTranscript}
-                style={{width:'100%',background:'transparent',border:'1px solid var(--border)',borderRadius:showTranscript?'8px 8px 0 0':8,padding:'10px 16px',color:'var(--text-muted)',fontFamily:'DM Mono',fontSize:'var(--font-size-xs)',cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                <span>Annotated Transcript</span>
-                <div style={{display:'flex',gap:14,alignItems:'center'}}>
-                  <span style={{display:'flex',gap:8,fontSize:11}}>
-                    <span style={{color:'#68d391'}}>● good</span>
-                    <span style={{color:'#f6ad55'}}>● improve</span>
-                    <span style={{color:'#fc8181'}}>● bad</span>
-                  </span>
-                  <span>{showTranscript?'↑':'↓'}</span>
-                </div>
-              </button>
-              {showTranscript&&(
-                <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderTop:'none',borderRadius:'0 0 8px 8px',padding:'16px 18px',fontSize:'var(--font-size-sm)',lineHeight:2,overflowY:'auto',maxHeight:480}}>
-                  {analysis.annotatedTranscript?.length > 0
-                    ? analysis.annotatedTranscript.map((span, i) => {
-                        const c = span.sentiment==='good'?'#68d391':span.sentiment==='improve'?'#f6ad55':span.sentiment==='bad'?'#fc8181':'var(--text-muted)'
-                        return <span key={i} style={{color:c,whiteSpace:'pre-wrap'}}>{span.text}</span>
-                      })
-                    : <span style={{color:'var(--text-muted)',whiteSpace:'pre-wrap'}}>{transcript}</span>
-                  }
-                </div>
-              )}
-            </div>
-            </div>{/* /report-pdf-root */}
+          </div>)}
           </div>
         )}
+
+        {/* ── COMPLETION TOAST ─────────────────────────────────────────────── */}
+        {showCompletionToast&&<CompletionToast onDismiss={()=>setShowCompletionToast(false)}/>}
       </div>
     </div>
   )

@@ -63,7 +63,17 @@ export async function GET(request) {
     }
 
     await initSchema() // D-01: ensures tables + migrations run before any query
-    const db = getDb()
+    let db
+    try { db = getDb() } catch {
+      return NextResponse.json({
+        salaries: [], median: null, total: 0,
+        counts: { lastWeek: 0, prevWeek: 0, lastMonth: 0, prevMonth: 0, lastQuarter: 0, prevQuarter: 0 },
+        growth: { wow: 0, mom: 0, qoq: 0 },
+        monthlyMedians: [],
+        options: { companies: [], roles: [], locations: [] },
+        dbUnavailable: true,
+      })
+    }
     const { where, args } = buildWhereClause(filters)
     const p = getPeriodBounds()
 
