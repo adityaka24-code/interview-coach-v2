@@ -5,8 +5,8 @@ import { useTheme } from '../context/ThemeContext'
 import BugReportButton from './BugReportButton'
 
 const links = [
-  { href:'/', label:'Record' },
-  { href:'/history', label:'History' },
+  { href:'/', label:'Home' },
+  { href:'/history', label:'Activity' },
   { href:'/questions', label:'Questions' },
   { href:'/salaries', label:'Job Insights' },
   { href:'/profile', label:'Profile' },

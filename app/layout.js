@@ -16,7 +16,7 @@ export default function RootLayout({ children }) {
       <body style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
         <ThemeProvider>
           <Nav />
-          <main style={{ flex: 1 }}>{children}</main>
+          <main style={{ flex: 1, paddingBottom: 48 }}>{children}</main>
           <Footer />
         </ThemeProvider>
       </body>

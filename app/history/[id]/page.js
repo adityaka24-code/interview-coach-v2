@@ -1,7 +1,39 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
+
+function ScoreRing({ score, size = 44 }) {
+  const [ready, setReady] = useState(false)
+  const mounted = useRef(false)
+  useEffect(() => {
+    if (mounted.current) return
+    mounted.current = true
+    requestAnimationFrame(() => requestAnimationFrame(() => setReady(true)))
+  }, [])
+  const strokeW = size >= 70 ? 5 : 3.5
+  const r = (size / 2) - strokeW - 1
+  const circ = 2 * Math.PI * r
+  const fill = ready ? (score / 10) * circ : 0
+  const c = score >= 7 ? '#68d391' : score >= 5 ? '#f6ad55' : '#fc8181'
+  const fontSize = size >= 70 ? 24 : size >= 50 ? 16 : 12
+  return (
+    <div style={{ position: 'relative', width: size, height: size, flexShrink: 0 }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--surface2)" strokeWidth={strokeW}/>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={c} strokeWidth={strokeW}
+          strokeDasharray={`${fill} ${circ}`}
+          strokeLinecap="round" transform={`rotate(-90 ${size/2} ${size/2})`}
+          style={{ transition: 'stroke-dasharray 1.2s cubic-bezier(0.4,0,0.2,1)', filter: `drop-shadow(0 0 4px ${c}88)` }}/>
+      </svg>
+      <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
+        justifyContent: 'center', fontSize, fontWeight: 800,
+        color: c, fontFamily: 'DM Mono', lineHeight: 1 }}>
+        {Number.isInteger(score) ? score : score.toFixed(1)}
+      </span>
+    </div>
+  )
+}
 
 const ROUND_COLORS = {
   'Screen':                { bg:'rgba(126,200,247,0.1)', border:'rgba(126,200,247,0.3)', color:'#7ec8f7' },
@@ -41,7 +73,7 @@ function AnswerCard({ answer, index }) {
   return (
     <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden', marginBottom: 12 }}>
       <div style={{ padding: '16px 22px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 16, borderBottom: expanded ? '1px solid var(--border)' : 'none' }} onClick={() => setExpanded(!expanded)}>
-        <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--surface2)', border: `1px solid ${c}44`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, fontWeight: 'bold', color: c, fontFamily: 'DM Mono', flexShrink: 0 }}>{answer.score}</div>
+        <ScoreRing score={answer.score} size={44} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 15, color: 'var(--text)', fontFamily: 'DM Serif Display', marginBottom: 4 }}>Q{index+1}: {answer.question}</div>
           <div style={{ fontSize: 13, color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{answer.yourAnswer}</div>
@@ -112,10 +144,7 @@ export default function InterviewDetail() {
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16, padding: '28px 32px', marginBottom: 20 }}>
         {/* Top row: score + title + badge */}
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 24, marginBottom: 20 }}>
-          <div style={{ width: 76, height: 76, borderRadius: 14, background: 'var(--surface2)', border: `2px solid ${sc}44`, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <span style={{ fontSize: 26, fontWeight: 800, color: sc, fontFamily: 'DM Mono', lineHeight: 1 }}>{a.overallScore}</span>
-            <span style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'DM Mono' }}>/10</span>
-          </div>
+          <ScoreRing score={a.overallScore} size={76} />
           <div style={{ flex: 1 }}>
             <div style={{ fontFamily: 'Montserrat', fontSize: 28, fontWeight: 800, color: 'var(--text)', marginBottom: 8, lineHeight: 1.2 }}>
               {data.company}{data.role ? ` — ${data.role}` : ''}

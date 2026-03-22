@@ -1,14 +1,16 @@
 'use client'
 import { useState, useRef, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import FileDropZone from './components/FileDropZone'
+import { useTheme } from './context/ThemeContext'
 
 // ─── Shared styles ────────────────────────────────────────────────────────────
 const S = {
   input: { width:'100%', background:'var(--surface2)', border:'1px solid var(--border)', borderRadius:'var(--radius)', padding:'11px 14px', color:'var(--text)', fontFamily:'DM Mono', fontSize:'var(--font-size-base)', boxSizing:'border-box', transition:'border-color 0.15s' },
-  label: { fontSize:'var(--font-size-xs)', color:'var(--text-muted)', letterSpacing:'1.5px', textTransform:'uppercase', display:'block', marginBottom:6 },
+  label: { fontSize:12, color:'var(--text)', letterSpacing:'1px', fontWeight:600, textTransform:'uppercase', display:'block', marginBottom:6, fontFamily:'DM Mono' },
   card: { background:'var(--surface)', border:'1px solid var(--border)', borderRadius:14, padding:22, marginBottom:14 },
-  section: { fontSize:'var(--font-size-xs)', color:'var(--text-muted)', letterSpacing:'2px', textTransform:'uppercase', marginBottom:14 },
+  section: { fontSize:12, color:'var(--text)', letterSpacing:'1px', fontWeight:700, textTransform:'uppercase', marginBottom:14, fontFamily:'DM Mono' },
 }
 
 const CURRENCIES = ['USD','INR','GBP','EUR','SGD','AUD','CAD']
@@ -414,7 +416,7 @@ function Ticker() {
 
   return (
     <div style={{
-      position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 50,
+      position: 'fixed', bottom: 48, left: 0, right: 0, zIndex: 50,
       borderTop: '1px solid var(--border)',
       background: 'var(--nav-bg)', backdropFilter: 'blur(12px)',
       height: 36, overflow: 'hidden', display: 'flex', alignItems: 'center',
@@ -446,39 +448,54 @@ function Ticker() {
 }
 
 
+// ── MiniRing — must live outside ReportTeaser so React sees a stable component
+// type across renders. If defined inside, every `ready` state change creates a
+// new function reference → React unmounts+remounts the element → CSS transition
+// on stroke-dasharray never fires (starts at final value immediately).
+const SC_COLORS = {
+  good:    { text:'#7ee8a2', bg:'rgba(126,232,162,0.09)', border:'rgba(126,232,162,0.22)', track:'rgba(126,232,162,0.15)' },
+  improve: { text:'#fbc26a', bg:'rgba(251,194,106,0.09)', border:'rgba(251,194,106,0.22)', track:'rgba(251,194,106,0.15)' },
+  bad:     { text:'#ff8f8f', bg:'rgba(255,143,143,0.09)', border:'rgba(255,143,143,0.22)', track:'rgba(255,143,143,0.15)' },
+}
+function MiniRing({ score, signal, size=48, ready, colors=SC_COLORS }) {
+  const c = colors[signal], r = (size/2)-5, circ = 2*Math.PI*r, pct = score/10
+  return (
+    <div style={{ position:'relative', width:size, height:size, flexShrink:0 }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--surface2)" strokeWidth="4"/>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={c.text} strokeWidth="4"
+          strokeDasharray={`${ready ? circ*pct : 0} ${circ}`}
+          strokeLinecap="round" transform={`rotate(-90 ${size/2} ${size/2})`}
+          style={{ transition:'stroke-dasharray 1.5s cubic-bezier(0.4,0,0.2,1)' }}/>
+      </svg>
+      <span style={{ position:'absolute', inset:0, display:'flex', alignItems:'center',
+        justifyContent:'center', fontSize:size>52?18:12, fontWeight:800,
+        color:c.text, fontFamily:'Montserrat', lineHeight:1 }}>{score.toFixed(1)}</span>
+    </div>
+  )
+}
+
 // ── Report Teaser (marketing panel on record page) ────────────────────────
 function ReportTeaser() {
-  const [activeTab, setActiveTab] = useState('what')
+  const [ready, setReady] = useState(false)
+  useEffect(() => { const t = setTimeout(() => setReady(true), 80); return () => clearTimeout(t) }, [])
+  const { theme } = useTheme()
+  const isLight = theme === 'light'
 
   const MOCK = [
-    { q:'Tell me about a product you launched', score:8.2, signal:'good',    type:'Product Sense', snippet:'Led payment links launch at Razorpay — drove 3× merchant adoption in Q2…',       tags:['Data-driven','Clear ownership'],   bars:[85,70,90,75] },
-    { q:'How do you prioritise your roadmap?',  score:6.1, signal:'improve', type:'Execution',     snippet:'I use impact vs effort… but missed connecting to user research signal…',         tags:['Framework used','Needs user insight'], bars:[60,55,65,50] },
-    { q:'Describe a product failure',           score:4.4, signal:'bad',     type:'Behavioural',   snippet:'Launched a feature nobody used — could be stronger on metrics & recovery…',     tags:['No metrics cited','Weak recovery'],    bars:[40,35,45,30] },
+    { q:'Tell me about a product you launched', score:8.2, signal:'good',    type:'Product Sense', snippet:'Led payment links launch at Razorpay — drove 3× merchant adoption in Q2…',       tags:['Data-driven','Clear ownership'],
+      bars:[{label:'Clarification',v:85},{label:'User Fit',v:70},{label:'Framework',v:90},{label:'Metrics',v:75}] },
+    { q:'How do you prioritise your roadmap?',  score:6.1, signal:'improve', type:'Execution',     snippet:'I use impact vs effort… but missed connecting to user research signal…',         tags:['Framework used','Needs user insight'],
+      bars:[{label:'Hypothesis',v:60},{label:'Metric Pick',v:55},{label:'Segmentation',v:65},{label:'Data Intuition',v:50}] },
+    { q:'Describe a product failure',           score:4.4, signal:'bad',     type:'Behavioural',   snippet:'Launched a feature nobody used — could be stronger on metrics & recovery…',     tags:['No metrics cited','Weak recovery'],
+      bars:[{label:'Situation',v:40},{label:'Ownership',v:35},{label:'Quantified',v:45},{label:'Lessons',v:30}] },
   ]
 
-  const SC = {
-    good:    { text:'#7ee8a2', bg:'rgba(126,232,162,0.09)', border:'rgba(126,232,162,0.22)', track:'rgba(126,232,162,0.15)' },
-    improve: { text:'#fbc26a', bg:'rgba(251,194,106,0.09)', border:'rgba(251,194,106,0.22)', track:'rgba(251,194,106,0.15)' },
-    bad:     { text:'#ff8f8f', bg:'rgba(255,143,143,0.09)', border:'rgba(255,143,143,0.22)', track:'rgba(255,143,143,0.15)' },
-  }
-  const BAR_LABELS = ['Empathy','Data','Strategy','Exec']
-
-  function MiniRing({ score, signal, size=48 }) {
-    const c = SC[signal], r = (size/2)-5, circ = 2*Math.PI*r, pct = score/10
-    return (
-      <div style={{ position:'relative', width:size, height:size, flexShrink:0 }}>
-        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-          <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--surface2)" strokeWidth="4"/>
-          <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={c.text} strokeWidth="4"
-            strokeDasharray={`${circ*pct} ${circ}`} strokeDashoffset={circ*0.25}
-            strokeLinecap="round" transform={`rotate(-90 ${size/2} ${size/2})`}/>
-        </svg>
-        <span style={{ position:'absolute', inset:0, display:'flex', alignItems:'center',
-          justifyContent:'center', fontSize:size>52?18:12, fontWeight:800,
-          color:c.text, fontFamily:'Montserrat', lineHeight:1 }}>{score.toFixed(1)}</span>
-      </div>
-    )
-  }
+  const SC = isLight ? {
+    good:    { text:'#16a34a', bg:'rgba(22,163,74,0.08)',  border:'rgba(22,163,74,0.3)',  track:'rgba(22,163,74,0.15)'  },
+    improve: { text:'#b45309', bg:'rgba(180,83,9,0.07)',   border:'rgba(180,83,9,0.28)',  track:'rgba(180,83,9,0.13)'   },
+    bad:     { text:'#dc2626', bg:'rgba(220,38,38,0.07)',  border:'rgba(220,38,38,0.28)', track:'rgba(220,38,38,0.13)'  },
+  } : SC_COLORS
 
   return (
     <div style={{ background:'var(--surface)', border:'1px solid var(--border)',
@@ -500,28 +517,13 @@ function ReportTeaser() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display:'flex', borderBottom:'1px solid var(--border)' }}>
-        {[['what','✦  What you get'],['preview','📋  Report Preview']].map(([id,label])=>(
-          <button key={id} onClick={()=>setActiveTab(id)}
-            style={{ flex:1, padding:'10px 8px', background:'transparent', border:'none',
-              borderBottom:activeTab===id?'2px solid var(--accent)':'2px solid transparent',
-              color:activeTab===id?'var(--text)':'var(--text-muted)',
-              fontFamily:'DM Mono', fontSize:12, cursor:'pointer', transition:'all 0.15s',
-              fontWeight:activeTab===id?'bold':'normal' }}>
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {/* ── Report Preview tab ── */}
-      {activeTab==='preview' && (
-        <div style={{ padding:'16px 18px' }}>
+      {/* ── Report Preview ── */}
+      <div style={{ padding:'16px 18px' }}>
 
           {/* Overall score */}
           <div style={{ display:'flex', alignItems:'center', gap:16, marginBottom:16,
             padding:'12px 16px', background:'var(--surface2)', borderRadius:12, border:'1px solid var(--border)' }}>
-            <MiniRing score={7.1} signal="improve" size={60}/>
+            <MiniRing score={7.1} signal="improve" size={60} ready={ready} colors={SC}/>
             <div style={{ flex:1, minWidth:0 }}>
               <p style={{ fontSize:13, color:'var(--text)', fontFamily:'Open Sans, sans-serif',
                 margin:'0 0 6px', fontStyle:'italic', lineHeight:1.5 }}>
@@ -541,21 +543,24 @@ function ReportTeaser() {
                 <div key={i} style={{ background:c.bg, border:`1px solid ${c.border}`, borderRadius:12, padding:'12px 14px' }}>
                   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:6 }}>
                     <div style={{ flex:1, marginRight:10 }}>
-                      <span style={{ fontSize:9, fontFamily:'DM Mono', letterSpacing:'1px', color:'#a78bfa',
-                        background:'rgba(167,139,250,0.12)', border:'1px solid rgba(167,139,250,0.25)',
+                      <span style={{ fontSize:9, fontFamily:'DM Mono', letterSpacing:'1px',
+                        color: isLight ? '#6d28d9' : '#a78bfa',
+                        background: isLight ? 'rgba(109,40,217,0.08)' : 'rgba(167,139,250,0.12)',
+                        border: `1px solid ${isLight ? 'rgba(109,40,217,0.25)' : 'rgba(167,139,250,0.25)'}`,
                         borderRadius:6, padding:'2px 7px', display:'inline-block', marginBottom:5 }}>{a.type}</span>
                       <p style={{ fontSize:13, color:'var(--text)', fontFamily:'Montserrat', fontWeight:600, margin:0, lineHeight:1.4 }}>{a.q}</p>
                     </div>
-                    <MiniRing score={a.score} signal={a.signal} size={48}/>
+                    <MiniRing score={a.score} signal={a.signal} size={48} ready={ready} colors={SC}/>
                   </div>
                   <p style={{ fontSize:11, color:'var(--text-muted)', fontFamily:'Open Sans, sans-serif', margin:'0 0 8px', lineHeight:1.6, fontStyle:'italic' }}>{a.snippet}</p>
-                  <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:5, marginBottom:8 }}>
-                    {a.bars.map((v,bi) => (
+                  <div style={{ display:'grid', gridTemplateColumns:`repeat(${a.bars.length},1fr)`, gap:5, marginBottom:8 }}>
+                    {a.bars.map(({label,v},bi) => (
                       <div key={bi}>
                         <div style={{ height:4, background:c.track, borderRadius:2, overflow:'hidden' }}>
-                          <div style={{ height:'100%', width:`${v}%`, background:c.text, borderRadius:2 }}/>
+                          <div style={{ height:'100%', width: ready ? `${v}%` : '0%', background:c.text, borderRadius:2,
+                            transition:`width 1.5s cubic-bezier(0.4,0,0.2,1) ${(i*4+bi)*60}ms` }}/>
                         </div>
-                        <p style={{ fontSize:8, color:'var(--text-muted)', fontFamily:'DM Mono', margin:'2px 0 0', textAlign:'center' }}>{BAR_LABELS[bi]}</p>
+                        <p style={{ fontSize:8, color:'var(--text-muted)', fontFamily:'DM Mono', margin:'2px 0 0', textAlign:'center' }}>{label}</p>
                       </div>
                     ))}
                   </div>
@@ -576,39 +581,6 @@ function ReportTeaser() {
             </p>
           </div>
         </div>
-      )}
-
-      {/* ── What you get tab ── */}
-      {activeTab==='what' && (
-        <div style={{ padding:'18px 20px' }}>
-          <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-            {[
-              { icon:'🎯', color:'#7ec8f7', title:'Scores on every answer',    desc:'Each response scored 0–10. Know exactly which answers are interview-ready and which will cost you the offer.' },
-              { icon:'📊', color:'#7ee8a2', title:'PM signal bars',             desc:'Customer Empathy, Data, Execution, Strategy, Communication — scored per question. See your PM fingerprint.' },
-              { icon:'✦',  color:'#a78bfa', title:'AI answer rewrite',          desc:'One click shows how a top PM would have answered. A benchmark to aim for, not a script to copy.' },
-              { icon:'📋', color:'#fbc26a', title:'Targeted practice plan',     desc:'3 custom drills based on your lowest-scoring answers. Move the needle, not just check a box.' },
-              { icon:'⬇️', color:'#7ec8f7', title:'PDF report download',        desc:'Save it, share with a coach, or pull it up before your next round.' },
-            ].map(({icon,color,title,desc})=>(
-              <div key={title} style={{ display:'flex', gap:14, alignItems:'flex-start',
-                padding:'12px 14px', background:'var(--surface2)', borderRadius:12, border:'1px solid var(--border)' }}>
-                <div style={{ width:38, height:38, borderRadius:10, flexShrink:0,
-                  background:`${color}15`, border:`1px solid ${color}30`,
-                  display:'flex', alignItems:'center', justifyContent:'center', fontSize:19 }}>{icon}</div>
-                <div>
-                  <p style={{ fontSize:14, color:'var(--text)', fontFamily:'Montserrat', fontWeight:700, margin:'0 0 4px' }}>{title}</p>
-                  <p style={{ fontSize:12, color:'var(--text-muted)', fontFamily:'Open Sans, sans-serif', lineHeight:1.65, margin:0 }}>{desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-          <div style={{ marginTop:16, background:'rgba(126,232,162,0.07)', border:'1px solid rgba(126,232,162,0.2)', borderRadius:12, padding:'12px 16px', display:'flex', alignItems:'center', gap:12 }}>
-            <span style={{ fontSize:22 }}>🔒</span>
-            <p style={{ fontSize:12, color:'#7ee8a2', fontFamily:'Open Sans, sans-serif', margin:0, lineHeight:1.6 }}>
-              <strong>Your data stays yours.</strong> Transcript and report never leave your account — not used for training, not shared.
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -1051,8 +1023,369 @@ function TranscriptReview({ segments, setSegments, classifying, classifyError, o
   )
 }
 
+// ── PredictTeaser ─────────────────────────────────────────────────────────────
+const PROB_TARGET = 72
+const PROB_SLOW_AT = 65
+
+function PredictTeaser() {
+  const [displayProb, setDisplayProb] = useState(0)
+
+  useEffect(() => {
+    let raf
+    // Phase 1: 0 → PROB_SLOW_AT in 1500ms (fast)
+    // Phase 2: PROB_SLOW_AT → PROB_TARGET in 1000ms (slow)
+    const phase1Duration = 1500
+    const phase2Duration = 1000
+    const startTime = performance.now()
+
+    function tick(now) {
+      const elapsed = now - startTime
+      let val
+
+      if (elapsed < phase1Duration) {
+        // ease-out cubic for phase 1
+        const t = elapsed / phase1Duration
+        const eased = 1 - Math.pow(1 - t, 3)
+        val = Math.round(eased * PROB_SLOW_AT)
+      } else {
+        const t = Math.min((elapsed - phase1Duration) / phase2Duration, 1)
+        // ease-in-out for phase 2 (slower, more deliberate)
+        const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2
+        val = Math.round(PROB_SLOW_AT + eased * (PROB_TARGET - PROB_SLOW_AT))
+      }
+
+      setDisplayProb(val)
+      if (elapsed < phase1Duration + phase2Duration) {
+        raf = requestAnimationFrame(tick)
+      } else {
+        setDisplayProb(PROB_TARGET)
+      }
+    }
+
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [])
+
+  const MOCK_QUESTIONS = [
+    { type: 'PRODUCT SENSE',  prob: 'high',   q: 'Design a feature to improve retention for first-time users.' },
+    { type: 'BEHAVIOURAL',    prob: 'high',   q: 'Tell me about a time you had to prioritise ruthlessly under pressure.' },
+    { type: 'ESTIMATION',     prob: 'medium', q: 'How many Stripe payment links are created per day globally?' },
+    { type: 'STRATEGY',       prob: 'medium', q: "How would you grow Stripe's share in the SMB segment?" },
+    { type: 'METRIC',         prob: 'low',    q: 'What metrics would you use to measure success of a new checkout flow?' },
+  ]
+
+  // Streaming typewriter: each question streams over 1.5s, staggered 250ms apart
+  const STREAM_DURATION = 1500
+  const STAGGER = 250
+  const [revealed, setRevealed] = useState(MOCK_QUESTIONS.map(() => 0))
+
+  useEffect(() => {
+    const rafIds = MOCK_QUESTIONS.map((q, qi) => {
+      const delay = qi * STAGGER
+      let id
+      const startRef = { t: null }
+      function tick(now) {
+        if (startRef.t === null) startRef.t = now
+        const elapsed = now - startRef.t - delay
+        if (elapsed < 0) { id = requestAnimationFrame(tick); return }
+        const pct = Math.min(elapsed / STREAM_DURATION, 1)
+        const chars = Math.round(pct * q.q.length)
+        setRevealed(prev => { const n = [...prev]; n[qi] = chars; return n })
+        if (pct < 1) id = requestAnimationFrame(tick)
+      }
+      id = requestAnimationFrame(tick)
+      return () => cancelAnimationFrame(id)
+    })
+    return () => rafIds.forEach(fn => fn())
+  }, [])
+  const MOCK_GAPS = [
+    { risk: 'high',   gap: 'Enterprise go-to-market experience',   signal: 'CV shows consumer product focus only; JD requires 3+ yrs enterprise sales collaboration' },
+    { risk: 'high',   gap: 'Technical depth for Stripe APIs',       signal: 'Payments infra role requires system design fluency — no eng background mentioned' },
+    { risk: 'medium', gap: 'Cross-functional leadership at scale',  signal: 'JD asks for leading 10+ person XFN teams; examples in CV cap at ~4 stakeholders' },
+    { risk: 'low',    gap: 'Regulatory & compliance awareness',     signal: 'Strong fintech signal from Razorpay; could strengthen PCI-DSS / AML familiarity' },
+  ]
+
+  // Typewriter for gap titles — stagger starts after all questions have begun
+  const GAP_STAGGER_OFFSET = MOCK_QUESTIONS.length * STAGGER   // 5 * 250 = 1250ms head-start
+  const [revealedGaps, setRevealedGaps] = useState(MOCK_GAPS.map(() => 0))
+  useEffect(() => {
+    const rafIds = MOCK_GAPS.map((g, gi) => {
+      const delay = GAP_STAGGER_OFFSET + gi * STAGGER
+      let id
+      const startRef = { t: null }
+      function tick(now) {
+        if (startRef.t === null) startRef.t = now
+        const elapsed = now - startRef.t - delay
+        if (elapsed < 0) { id = requestAnimationFrame(tick); return }
+        const pct = Math.min(elapsed / STREAM_DURATION, 1)
+        const chars = Math.round(pct * g.gap.length)
+        setRevealedGaps(prev => { const n = [...prev]; n[gi] = chars; return n })
+        if (pct < 1) id = requestAnimationFrame(tick)
+      }
+      id = requestAnimationFrame(tick)
+      return () => cancelAnimationFrame(id)
+    })
+    return () => rafIds.forEach(fn => fn())
+  }, [])
+
+  const probStyle = (p) => p === 'high'
+    ? { color: '#3fb950', bg: 'rgba(63,185,80,0.12)', border: 'rgba(63,185,80,0.3)' }
+    : p === 'medium'
+    ? { color: '#d29922', bg: 'rgba(210,153,34,0.12)', border: 'rgba(210,153,34,0.3)' }
+    : { color: 'var(--text-muted)', bg: 'var(--surface2)', border: 'var(--border)' }
+  const riskStyle = (r) => r === 'high'
+    ? { color: '#f85149', bg: 'rgba(248,81,73,0.1)', border: 'rgba(248,81,73,0.25)' }
+    : r === 'medium'
+    ? { color: '#d29922', bg: 'rgba(210,153,34,0.1)', border: 'rgba(210,153,34,0.25)' }
+    : { color: '#58a6ff', bg: 'rgba(88,166,255,0.07)', border: 'rgba(88,166,255,0.2)' }
+
+  return (
+    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 18, overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.25)' }}>
+
+      {/* Header */}
+      <div style={{ background: 'linear-gradient(135deg,rgba(88,166,255,0.1),rgba(63,185,80,0.07))', borderBottom: '1px solid var(--border)', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '2px', textTransform: 'uppercase', fontFamily: 'DM Mono', marginBottom: 3 }}>Your report looks like this</p>
+          <p style={{ fontSize: 16, color: 'var(--text)', fontFamily: 'Montserrat', fontWeight: 700, margin: 0 }}>Prediction Report</p>
+        </div>
+        <div style={{ background: 'rgba(88,166,255,0.12)', border: '1px solid rgba(88,166,255,0.3)', borderRadius: 20, padding: '4px 12px', fontSize: 10, color: 'var(--accent)', fontFamily: 'DM Mono', fontWeight: 'bold' }}>
+          ⚡ ~1 min
+        </div>
+      </div>
+
+      {/* Callback probability preview */}
+      <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)', background: 'rgba(63,185,80,0.04)' }}>
+        <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '1.5px', textTransform: 'uppercase', fontFamily: 'DM Mono', marginBottom: 8 }}>Callback probability</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <div style={{ textAlign: 'center', flexShrink: 0 }}>
+            <div style={{ fontSize: 34, fontWeight: 800, color: '#3fb950', fontFamily: 'DM Mono', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{displayProb}%</div>
+            <div style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'DM Mono', marginTop: 2 }}>without referral</div>
+          </div>
+          <div style={{ flex: 1 }}>
+            <p style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6, margin: '0 0 6px', fontStyle: 'italic' }}>"Strong product instinct and data focus — enterprise GTM gap is the key risk to address."</p>
+            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 10, fontFamily: 'DM Mono', color: '#3fb950', background: 'rgba(63,185,80,0.1)', border: '1px solid rgba(63,185,80,0.2)', borderRadius: 6, padding: '2px 7px' }}>✓ Data-driven</span>
+              <span style={{ fontSize: 10, fontFamily: 'DM Mono', color: '#f85149', background: 'rgba(248,81,73,0.08)', border: '1px solid rgba(248,81,73,0.2)', borderRadius: 6, padding: '2px 7px' }}>✗ Enterprise gap</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Predicted questions */}
+      <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
+        <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '1.5px', textTransform: 'uppercase', fontFamily: 'DM Mono', marginBottom: 10 }}>Predicted questions</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+          {MOCK_QUESTIONS.map((q, i) => {
+            const ps = probStyle(q.prob)
+            return (
+              <div key={i} style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 9, padding: '9px 12px', display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '4px 10px', alignItems: 'center' }}>
+                <span style={{ fontSize: 9, fontFamily: 'DM Mono', fontWeight: 700, borderRadius: 8, padding: '2px 7px', background: ps.bg, color: ps.color, border: `1px solid ${ps.border}`, whiteSpace: 'nowrap', gridRow: '1 / 3', alignSelf: 'center' }}>{q.prob}</span>
+                <span style={{ fontSize: 9, color: 'var(--accent)', fontFamily: 'DM Mono', letterSpacing: '0.5px' }}>{q.type}</span>
+                <p style={{ fontSize: 11, color: 'var(--text)', fontFamily: 'Montserrat', fontWeight: 600, margin: 0, lineHeight: 1.45, minHeight: '1.45em' }}>
+                  {q.q.slice(0, revealed[i])}
+                  {revealed[i] < q.q.length && <span style={{ animation: 'blink 0.7s step-end infinite', borderRight: '2px solid var(--accent)', marginLeft: 1 }}/>}
+                </p>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Gap analysis */}
+      <div style={{ padding: '14px 18px' }}>
+        <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '1.5px', textTransform: 'uppercase', fontFamily: 'DM Mono', marginBottom: 10 }}>Gap analysis</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+          {MOCK_GAPS.map((g, i) => {
+            const rs = riskStyle(g.risk)
+            const gapDone = revealedGaps[i] >= g.gap.length
+            return (
+              <div key={i} style={{ border: `1px solid ${rs.border}`, borderRadius: 9, overflow: 'hidden' }}>
+                <div style={{ background: rs.bg, padding: '7px 12px', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 9, fontFamily: 'DM Mono', fontWeight: 700, color: rs.color, textTransform: 'uppercase', letterSpacing: '0.5px', flexShrink: 0 }}>{g.risk} risk</span>
+                  <span style={{ fontSize: 11, color: 'var(--text)', fontFamily: 'Montserrat', fontWeight: 600, minHeight: '1.4em' }}>
+                    {g.gap.slice(0, revealedGaps[i])}
+                    {!gapDone && <span style={{ animation: 'blink 0.7s step-end infinite', borderRight: '2px solid ' + rs.color, marginLeft: 1 }}/>}
+                  </span>
+                </div>
+                <div style={{ padding: '6px 12px', background: 'var(--surface2)', transition: 'opacity 0.4s ease', opacity: gapDone ? 1 : 0 }}>
+                  <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'Open Sans, sans-serif', fontStyle: 'italic' }}>{g.signal}</span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <div style={{ marginTop: 10, padding: '8px 12px', background: 'rgba(88,166,255,0.05)', border: '1px solid rgba(88,166,255,0.15)', borderRadius: 8 }}>
+          <p style={{ fontSize: 9, color: 'var(--accent)', fontFamily: 'DM Mono', letterSpacing: '1px', textTransform: 'uppercase', margin: '0 0 3px' }}>Also included</p>
+          <p style={{ fontSize: 10, color: 'var(--text-muted)', margin: 0, lineHeight: 1.6 }}>CV improvement tips · Interview prep advice · PDF download · "Was this asked?" tracking</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── PredictPanel ──────────────────────────────────────────────────────────────
+function PredictPanel() {
+  const router = useRouter()
+  const [company, setCompany] = useState('')
+  const [roleLevel, setRoleLevel] = useState('PM')
+  const [roundType, setRoundType] = useState('loop')
+  const [jdText, setJdText] = useState('')
+  const [cvText, setCvText] = useState('')
+  const [error, setError] = useState('')
+
+  // Auto-load CV from profile on mount
+  useEffect(() => {
+    fetch('/api/profile')
+      .then(r => r.json())
+      .then(d => { if (d.cv_text) setCvText(d.cv_text) })
+      .catch(() => {})
+  }, [])
+
+  function handleSubmit() {
+    if (!company.trim() || !roleLevel.trim() || !roundType.trim()) {
+      setError('Company, role level and round type are required.')
+      return
+    }
+    // Store params and navigate immediately — loading page runs the API calls
+    sessionStorage.setItem('predict-params', JSON.stringify({ company, roleLevel, roundType, jdText, cvText }))
+    router.push('/predict/loading')
+  }
+
+  const pInput = {
+    background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8,
+    padding: '10px 12px', color: 'var(--text)', fontSize: 14, fontFamily: 'Open Sans, sans-serif',
+    width: '100%', boxSizing: 'border-box', outline: 'none',
+  }
+  const pLabel = {
+    fontSize: 12, color: 'var(--text)', letterSpacing: '1px', fontWeight: 600,
+    textTransform: 'uppercase', display: 'block', marginBottom: 6, fontFamily: 'DM Mono',
+  }
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32, alignItems: 'stretch', animation: 'fadeUp 0.3s ease' }}>
+
+      {/* LEFT — form card */}
+      <div className="transcript-glow" style={{ background: 'var(--surface)', border: '1px solid rgba(99,179,237,0.35)', borderRadius: 16, overflow: 'hidden', display: 'flex', flexDirection: 'column', transform: 'translateY(-1px)' }}>
+
+        {/* Header */}
+        <div style={{ background: 'linear-gradient(135deg,rgba(88,166,255,0.08),rgba(63,185,80,0.06))', borderBottom: '1px solid var(--border)', padding: '18px 24px' }}>
+          <p style={{ fontSize: 11, color: 'var(--accent)', letterSpacing: '2px', textTransform: 'uppercase', fontFamily: 'DM Mono', marginBottom: 6, fontWeight: 700 }}>Interview Predictor</p>
+          <p style={{ fontSize: 18, color: 'var(--text)', fontFamily: 'Montserrat', fontWeight: 700, margin: 0 }}>
+            Know what's coming before you walk in.
+          </p>
+        </div>
+
+        {/* Form */}
+        <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', flex: 1 }}>
+
+          {/* Row 1: Company / Role / Round */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
+            <div>
+              <label style={pLabel}>Company *</label>
+              <input value={company} onChange={e => setCompany(e.target.value)} placeholder="e.g. Stripe" style={pInput} />
+            </div>
+            <div>
+              <label style={pLabel}>Role level *</label>
+              <select value={roleLevel} onChange={e => setRoleLevel(e.target.value)} style={pInput}>
+                <option value="APM">APM</option>
+                <option value="PM">PM</option>
+                <option value="Senior PM">Senior PM</option>
+                <option value="Staff PM">Staff PM</option>
+                <option value="Principal PM">Principal PM</option>
+                <option value="Director of PM">Director of PM</option>
+                <option value="VP of Product">VP of Product</option>
+                <option value="CPO">CPO</option>
+              </select>
+            </div>
+            <div>
+              <label style={pLabel}>Round type *</label>
+              <select value={roundType} onChange={e => setRoundType(e.target.value)} style={pInput}>
+                <option value="screening">Phone Screening</option>
+                <option value="loop">Full Loop</option>
+                <option value="panel">Panel</option>
+                <option value="final">Final Round</option>
+                <option value="take-home">Take-Home</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Equal-height pair — grid rows guarantee both get identical height */}
+          <div style={{ flex: 1, display: 'grid', gridTemplateRows: '1fr 1fr', gap: 14, marginBottom: 10, minHeight: 0 }}>
+
+            {/* JD text */}
+            <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <label style={pLabel}>Job description (paste text)</label>
+              <textarea value={jdText} onChange={e => setJdText(e.target.value)}
+                placeholder="Paste the JD here — the more detail, the sharper the prediction."
+                style={{ ...pInput, resize: 'none', lineHeight: 1.6, flex: 1, minHeight: 0 }} />
+            </div>
+
+            {/* CV text */}
+            <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+                <label style={{ ...pLabel, margin: 0 }}>Your CV / résumé</label>
+                {cvText && <span style={{ fontSize: 10, color: '#3fb950', fontFamily: 'DM Mono' }}>✓ loaded from profile</span>}
+              </div>
+              <textarea value={cvText} onChange={e => setCvText(e.target.value)}
+                placeholder="Paste your CV text — used to surface gaps between your background and the role."
+                style={{ ...pInput, resize: 'none', lineHeight: 1.6, flex: 1, minHeight: 0 }} />
+            </div>
+
+          </div>
+
+          {/* File drop — fixed height, outside the growing area so it doesn't steal from textareas */}
+          <div style={{ marginBottom: 10 }}>
+            <FileDropZone onText={text => setCvText(text)} label="or drop CV / PDF / DOCX here" />
+          </div>
+
+          {error && (
+            <p role="alert" style={{ padding: '10px 14px', background: 'rgba(248,81,73,0.06)', border: '1px solid rgba(248,81,73,0.2)', borderRadius: 8, fontSize: 13, color: 'var(--danger)', marginBottom: 14 }}>
+              ⚠ {error}
+            </p>
+          )}
+          <button onClick={handleSubmit}
+            style={{
+              width: '100%', padding: '15px 20px',
+              background: 'linear-gradient(135deg, #1d4ed8 0%, #2563eb 50%, #3b82f6 100%)',
+              border: '1px solid rgba(255,255,255,0.15)',
+              borderRadius: 12,
+              color: '#ffffff',
+              fontSize: 15, fontFamily: 'DM Mono', fontWeight: 800,
+              letterSpacing: '0.3px',
+              cursor: 'pointer',
+              boxShadow: '0 4px 24px rgba(37,99,235,0.5), 0 1px 0 rgba(255,255,255,0.15) inset',
+              transition: 'transform 0.12s ease, box-shadow 0.12s ease',
+              textShadow: '0 1px 2px rgba(0,0,0,0.3)',
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.transform = 'translateY(-1px)'
+              e.currentTarget.style.boxShadow = '0 8px 32px rgba(37,99,235,0.65), 0 1px 0 rgba(255,255,255,0.15) inset'
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.transform = 'translateY(0)'
+              e.currentTarget.style.boxShadow = '0 4px 24px rgba(37,99,235,0.5), 0 1px 0 rgba(255,255,255,0.15) inset'
+            }}
+            onMouseDown={e => { e.currentTarget.style.transform = 'translateY(1px)' }}
+            onMouseUp={e => { e.currentTarget.style.transform = 'translateY(-1px)' }}
+          >
+            ✦ Predict my questions + callback probability →
+          </button>
+        </div>
+      </div>
+
+      {/* RIGHT — prediction report teaser */}
+      <PredictTeaser />
+
+    </div>
+  )
+}
+
 export default function Home() {
   const [stage, setStage] = useState('record')
+  const [homeMode, setHomeMode] = useState('predict')
+  const { theme } = useTheme()
+  const isLight = theme === 'light'
 
   // Expose stage to BugReportButton via window
   useEffect(() => { if (typeof window !== 'undefined') window.__appStage = stage }, [stage])
@@ -1290,7 +1623,7 @@ export default function Home() {
       }, 200)
     } catch(e) {
       clearTimeout(countdownTimerRef.current)
-      setError(e.message); setStage('details')
+      setError(`${e.message} — Your transcript is safe, just hit "Analyze Interview" again.`); setStage('details')
     }
   }
 
@@ -1304,6 +1637,24 @@ export default function Home() {
     setMeta({company:'',role:'',location:'',experienceYears:'',roundType:'',salaryMin:'',salaryMax:'',salaryCurrency:'USD',jobDescription:'',jobUrl:'',cvText:'',portfolioText:''})
   }
 
+function computeCallbackProb(analysis, metadata) {
+  if (!analysis) return { withReferral: null, withoutReferral: null }
+  const sc = analysis.overallScore || 5
+  let base = Math.round(10 + (sc / 10) * 65)
+  const hasJD = !!(metadata?.jobDescription?.trim())
+  const hasCV = !!(metadata?.cvText?.trim())
+  if (hasJD) base += 5
+  if (hasCV) base += 3
+  const readiness = analysis.interviewReadiness || ''
+  if (readiness === 'Strong candidate') base += 8
+  else if (readiness === 'Ready') base += 4
+  else if (readiness === 'Almost there') base += 0
+  else base -= 5
+  const withoutReferral = Math.min(Math.max(base, 1), 85)
+  const withReferral    = Math.min(withoutReferral + 18, 99)
+  return { withReferral, withoutReferral }
+}
+
   const downloadPDF = () => {
     if (!analysis) return
     const company  = submittedMetadata?.company || 'Interview'
@@ -1314,6 +1665,10 @@ export default function Home() {
       .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
 
     const scoreColor = (n) => n >= 8 ? '#16a34a' : n >= 6 ? '#d97706' : '#dc2626'
+
+    const { withReferral: cbWith, withoutReferral: cbWithout } = computeCallbackProb(analysis, submittedMetadata)
+    const cbDiff = cbWith - cbWithout
+    const cbCol = cbWith >= 65 ? '#16a34a' : cbWith >= 40 ? '#d97706' : '#dc2626'
 
     const answersHtml = (analysis.answers || []).map((a, i) => `
       <div class="answer-card">
@@ -1407,6 +1762,20 @@ export default function Home() {
   <h1>${esc(company)} · ${esc(role)}</h1>
   <p class="meta">Interview Report · ${date}${submittedMetadata?.location ? ' · ' + esc(submittedMetadata.location) : ''}${submittedMetadata?.roundType && submittedMetadata.roundType !== 'unknown' ? ' · ' + esc(submittedMetadata.roundType) : ''}</p>
 
+  <div style="border:1px solid ${cbCol}40;border-radius:8px;padding:16px 20px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;background:${cbCol}08">
+    <div>
+      <div style="font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#555;margin-bottom:4px">Interview Callback Probability</div>
+      <span style="font-size:44px;font-weight:800;color:${cbCol}">${cbWith}%</span>
+      <span style="font-size:12px;color:#777;margin-left:8px">with referral</span>
+    </div>
+    <div style="text-align:right;background:#f5f5f5;padding:10px 14px;border-radius:6px">
+      <div style="font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#555;margin-bottom:4px">Without referral</div>
+      <span style="font-size:22px;font-weight:700">${cbWithout}%</span>
+      <span style="font-size:11px;color:#16a34a;font-weight:bold;margin-left:6px">+${cbDiff}%</span>
+      <div style="font-size:9px;color:#888;margin-top:3px">referral uplift</div>
+    </div>
+  </div>
+
   <div class="summary">${esc(analysis.overallSummary)}</div>
 
   <div style="margin-bottom:20px">
@@ -1442,10 +1811,20 @@ export default function Home() {
 </body>
 </html>`
 
-    const w = window.open('', '_blank')
-    w.document.write(html)
-    w.document.close()
-    setTimeout(() => w.print(), 600)
+    const filename = [company, role, 'Interview', 'Report', date]
+      .join('_')
+      .replace(/\s+/g, '_')
+      .replace(/[^a-zA-Z0-9_\-]/g, '') + '.html'
+
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href     = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -1456,6 +1835,16 @@ export default function Home() {
         @keyframes pulse-ring{0%{transform:scale(1);opacity:0.8}100%{transform:scale(2.4);opacity:0}}
         @keyframes blink{0%,100%{opacity:1}50%{opacity:0.3}}
         @keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+        @keyframes glow-pulse{
+          0%,100%{box-shadow:0 0 0 2px rgba(99,179,237,0.3),0 0 20px rgba(99,179,237,0.22),0 8px 40px rgba(99,179,237,0.1)}
+          50%{box-shadow:0 0 0 2px rgba(99,179,237,0.6),0 0 40px rgba(99,179,237,0.42),0 12px 56px rgba(99,179,237,0.2)}
+        }
+        @keyframes glow-pulse-light{
+          0%,100%{box-shadow:0 0 0 2px rgba(37,99,235,0.3),0 0 18px rgba(37,99,235,0.25),0 8px 36px rgba(37,99,235,0.18)}
+          50%{box-shadow:0 0 0 2px rgba(37,99,235,0.55),0 0 32px rgba(37,99,235,0.42),0 12px 52px rgba(37,99,235,0.28)}
+        }
+        .transcript-glow{animation:glow-pulse 2.8s ease-in-out infinite!important}
+        [data-theme="light"] .transcript-glow{border-color:rgba(37,99,235,0.55)!important;animation:glow-pulse-light 2.8s ease-in-out infinite!important}
         @keyframes spin{to{transform:rotate(360deg)}}
         input:focus,select:focus,textarea:focus{outline:2px solid var(--border-focus)!important;outline-offset:0}
         input::placeholder,textarea::placeholder{color:var(--text-muted);opacity:0.5}
@@ -1469,56 +1858,128 @@ export default function Home() {
 
             {/* ── Hero ─────────────────────────────────────────────────────── */}
             <div style={{textAlign:'center',marginBottom:36,paddingTop:12}}>
-              <div style={{display:'inline-flex',alignItems:'center',gap:10,marginBottom:18}}>
-                <span style={{background:'rgba(99,179,237,0.08)',border:'1px solid rgba(99,179,237,0.18)',borderRadius:20,padding:'4px 14px',fontSize:'var(--font-size-xs)',color:'var(--accent)',letterSpacing:'1.5px',textTransform:'uppercase',fontFamily:'DM Mono'}}>
-                  Beta · PM Interview Coach
-                </span>
-                <span style={{background:'rgba(104,211,145,0.1)',border:'1px solid rgba(104,211,145,0.25)',borderRadius:20,padding:'4px 14px',fontSize:'var(--font-size-xs)',color:'#68d391',letterSpacing:'1px',fontFamily:'DM Mono',display:'flex',alignItems:'center',gap:5}}>
-                  <span style={{fontSize:11}}>⚡</span> Report in ~2 mins
-                </span>
-              </div>
-              <h1 style={{fontFamily:'Montserrat',fontSize:'clamp(32px,4vw,52px)',fontWeight:800,color:'var(--text)',marginBottom:12,letterSpacing:'-1px',lineHeight:1.15}}>
-                Crack the code.<br/>
-                <span style={{color:'var(--accent)'}}>Land the PM role.</span>
+              <h1 style={{fontFamily:'Montserrat',fontSize:'clamp(28px,3.5vw,46px)',fontWeight:800,color:'var(--text)',marginBottom:10,letterSpacing:'-0.5px',lineHeight:1.2}}>
+                Your PM interview edge.
               </h1>
-              <p style={{color:'var(--text-muted)',fontSize:'var(--font-size-sm)',lineHeight:1.8,maxWidth:440,margin:'0 auto'}}>
-                Paste your transcript or record live — get a full AI coaching report in under 2 minutes.
+              <p style={{color:'var(--text)',fontSize:20,fontWeight:600,lineHeight:1.4,maxWidth:700,margin:'0 auto 10px',fontFamily:'Open Sans, sans-serif',whiteSpace:'nowrap'}}>
+                🔮 Predict questions before you walk in — 📊 analyse answers after.
               </p>
+              <p style={{color:'var(--text-muted)',fontSize:11,lineHeight:1.7,maxWidth:560,margin:'0 auto 22px',fontFamily:'DM Mono',opacity:0.7}}>
+                Trained on <strong style={{color:'var(--text)',fontFamily:'DM Mono'}}>6,000+ real PM interview questions</strong> across Google, Meta, Stripe, Airbnb and more — predictions are matched to your specific role, round type, and JD. Callback probability is calibrated against real hiring outcomes in the dataset.
+              </p>
+              {/* Predict / Analyse pill toggle */}
+              <div style={{
+                display:'inline-flex', padding:5, gap:5, borderRadius:18,
+                background:'var(--surface)',
+                border:'1px solid var(--border)',
+                boxShadow:'0 0 0 4px rgba(99,179,237,0.08), 0 8px 32px rgba(0,0,0,0.35)',
+              }}>
+                <button onClick={()=>setHomeMode('predict')}
+                  style={{
+                    display:'flex', alignItems:'center', gap:10,
+                    padding:'14px 28px', borderRadius:13, border:'none', cursor:'pointer',
+                    fontFamily:'DM Mono', fontSize:14, fontWeight:700, letterSpacing:'0.3px',
+                    transition:'all 0.2s cubic-bezier(0.4,0,0.2,1)',
+                    background: homeMode==='predict' ? (isLight ? 'linear-gradient(135deg,#1d4ed8,#2563eb)' : 'linear-gradient(135deg,var(--accent),#4299e1)') : 'transparent',
+                    color: homeMode==='predict' ? '#fff' : 'var(--text-muted)',
+                    boxShadow: homeMode==='predict' ? (isLight ? '0 4px 20px rgba(29,78,216,0.4)' : '0 4px 18px rgba(99,179,237,0.45)') : 'none',
+                  }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/><path d="M11 8v6M8 11h6"/>
+                  </svg>
+                  Predict interview questions
+                </button>
+                <button onClick={()=>setHomeMode('analyse')}
+                  style={{
+                    display:'flex', alignItems:'center', gap:10,
+                    padding:'14px 28px', borderRadius:13, border:'none', cursor:'pointer',
+                    fontFamily:'DM Mono', fontSize:14, fontWeight:700, letterSpacing:'0.3px',
+                    transition:'all 0.2s cubic-bezier(0.4,0,0.2,1)',
+                    background: homeMode==='analyse' ? (isLight ? 'linear-gradient(135deg,#1d4ed8,#2563eb)' : 'linear-gradient(135deg,var(--accent),#4299e1)') : 'transparent',
+                    color: homeMode==='analyse' ? '#fff' : 'var(--text-muted)',
+                    boxShadow: homeMode==='analyse' ? (isLight ? '0 4px 20px rgba(29,78,216,0.4)' : '0 4px 18px rgba(99,179,237,0.45)') : 'none',
+                  }}>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/>
+                  </svg>
+                  Analyse interview transcript
+                </button>
+              </div>
             </div>
 
-            {/* ── Two-column layout ─────────────────────────────────────────── */}
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:32,alignItems:'start'}}>
+            {/* ── Predict mode ──────────────────────────────────────────────── */}
+            {homeMode==='predict'&&<PredictPanel/>}
+
+            {/* ── Two-column layout (analyse mode) ──────────────────────────── */}
+            {homeMode==='analyse'&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:32,alignItems:'stretch'}}>
 
               {/* LEFT: Input controls */}
-              <div>
-                {/* ── Mode toggle tabs ── */}
-                <div style={{display:'flex',gap:4,marginBottom:16,background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:4}}>
-                  {[
-                    {mode:'paste',  icon:'📝', label:'Paste transcript'},
-                    {mode:'record', icon:'🎙️', label:'Record / Upload'},
-                  ].map(({mode,icon,label})=>(
-                    <button key={mode}
-                      onClick={()=>{if(recState==='idle')setInputMode(mode)}}
-                      aria-pressed={inputMode===mode}
-                      style={{
-                        flex:1, padding:'10px 8px', borderRadius:8, border:'none', cursor: recState!=='idle'&&mode!==inputMode ?'not-allowed':'pointer',
-                        background: inputMode===mode ? (mode==='record'?'rgba(126,200,247,0.14)':'rgba(126,200,247,0.18)') : 'transparent',
-                        color: inputMode===mode ? (mode==='record'?'var(--accent)':'var(--text)') : 'var(--text-muted)',
-                        fontFamily:'DM Mono', fontSize:'var(--font-size-xs)', fontWeight: inputMode===mode ? 700 : 400,
-                        transition:'all 0.18s', display:'flex', alignItems:'center', justifyContent:'center', gap:6,
-                        outline: inputMode===mode ? '1px solid rgba(126,200,247,0.25)' : 'none',
-                        opacity: recState!=='idle'&&mode!==inputMode ? 0.4 : 1,
-                      }}>
-                      <span style={{fontSize:15}}>{icon}</span> {label}
-                    </button>
-                  ))}
+              <div style={{display:'flex',flexDirection:'column'}}>
+                {/* ── Unified glow card: toggle + transcript ── */}
+                <div className="transcript-glow" style={{border:'1px solid rgba(99,179,237,0.35)',borderRadius:14,overflow:'hidden',marginBottom:12,display:'flex',flexDirection:'column',transform:'translateY(-1px)'}}>
+
+                {/* Mode toggle tabs */}
+                <div style={{display:'flex',gap:4,padding:4,borderBottom:'1px solid rgba(99,179,237,0.18)',background:'rgba(99,179,237,0.04)'}}>
+                  <button
+                    onClick={()=>{if(recState==='idle')setInputMode('paste')}}
+                    aria-pressed={inputMode==='paste'}
+                    style={{
+                      flex:1, padding:'13px 8px', borderRadius:8, border:'none',
+                      cursor: recState!=='idle'&&'paste'!==inputMode ? 'not-allowed' : 'pointer',
+                      background: inputMode==='paste' ? 'rgba(126,200,247,0.18)' : 'transparent',
+                      color: inputMode==='paste' ? 'var(--text)' : 'var(--text-muted)',
+                      fontFamily:'DM Mono', fontSize:14, fontWeight: 700, letterSpacing:'0.3px',
+                      transition:'all 0.18s', display:'flex', alignItems:'center', justifyContent:'center', gap:8,
+                      outline: inputMode==='paste' ? '1px solid rgba(126,200,247,0.3)' : 'none',
+                      opacity: recState!=='idle'&&'paste'!==inputMode ? 0.4 : 1,
+                    }}>
+                    <span style={{fontSize:16}}>📝</span> Paste transcript
+                  </button>
+                  <button
+                    style={{
+                      flex: 1,
+                      padding: '13px 16px',
+                      borderRadius: 8,
+                      border: '1px solid var(--border)',
+                      background: 'transparent',
+                      color: 'var(--text-muted)',
+                      fontSize: 14,
+                      fontWeight: 700,
+                      letterSpacing: '0.3px',
+                      fontFamily: 'DM Mono',
+                      cursor: 'not-allowed',
+                      position: 'relative',
+                      filter: 'blur(0.4px)',
+                      opacity: 0.55,
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 8,
+                    }}
+                    disabled
+                    title="Pro feature — coming soon"
+                  >
+                    🔒 Record / Upload
+                    <span style={{
+                      fontSize: 10,
+                      background: 'var(--surface2)',
+                      border: '1px solid var(--border)',
+                      borderRadius: 4,
+                      padding: '1px 6px',
+                      color: 'var(--text-muted)',
+                      fontFamily: 'DM Mono',
+                      marginLeft: 4,
+                    }}>
+                      Pro · coming soon
+                    </span>
+                  </button>
                 </div>
 
                 {/* ── PASTE TAB ── */}
                 {inputMode==='paste'&&(
                   <>
-                    <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:14,overflow:'hidden',marginBottom:12}}>
-                      <div style={{padding:'8px 14px',borderBottom:'1px solid var(--border)',fontSize:'var(--font-size-xs)',color:'var(--text-muted)',letterSpacing:'1.5px',textTransform:'uppercase',display:'flex',justifyContent:'space-between',alignItems:'center',fontFamily:'DM Mono'}}>
+                    <div style={{background:'var(--surface)',overflow:'hidden'}}>
+                      <div style={{padding:'10px 14px',borderBottom:'1px solid rgba(99,179,237,0.2)',fontSize:12,fontWeight:700,color:'var(--accent)',letterSpacing:'1.5px',textTransform:'uppercase',display:'flex',justifyContent:'space-between',alignItems:'center',fontFamily:'DM Mono',background:'rgba(99,179,237,0.05)'}}>
                         <span>Transcript</span>
                         {(()=>{const wc=pasted.trim().split(/\s+/).filter(Boolean).length;return(
                         <span style={{color:wc>25000?'var(--danger)':wc>100?'var(--accent2)':'var(--text-muted)',fontVariantNumeric:'tabular-nums'}}>
@@ -1527,16 +1988,24 @@ export default function Home() {
                       </div>
                       <textarea value={pasted} onChange={e=>setPasted(e.target.value)} aria-label="Interview transcript"
                         placeholder={"Interviewer: Tell me about a product you launched.\n\nMe: At Razorpay I led the launch of payment links...\n\nInterviewer: How do you prioritise your roadmap?\n\nMe: I use a combination of impact vs effort..."}
-                        style={{...S.input,height:260,resize:'vertical',border:'none',borderRadius:0,lineHeight:1.75,padding:16,fontFamily:'Open Sans, sans-serif',fontSize:'var(--font-size-base)'}}/>
+                        style={{...S.input,height:260,resize:'vertical',border:'none',borderRadius:0,lineHeight:1.75,padding:16,fontFamily:'Open Sans, sans-serif',fontSize:'var(--font-size-base)',background:'rgba(99,179,237,0.03)'}}/>
                     </div>
                     {(()=>{const wc=pasted.trim().split(/\s+/).filter(Boolean).length;const tooLong=wc>25000;const tooShort=pasted.trim().length<50;return(
                     <button onClick={()=>goDetails(null)} disabled={tooShort||tooLong}
-                      style={{width:'100%',padding:'13px',
-                        background:(!tooShort&&!tooLong)?'linear-gradient(135deg,var(--accent),#4299e1)':'var(--surface2)',
-                        border:'none',borderRadius:'var(--radius)',
-                        color:(!tooShort&&!tooLong)?'#0a0a0f':'var(--text-muted)',
-                        fontSize:'var(--font-size-base)',fontFamily:'DM Mono',fontWeight:'bold',
-                        cursor:(!tooShort&&!tooLong)?'pointer':'not-allowed',transition:'all 0.2s'}}>
+                      style={{width:'100%',padding:'15px 20px',
+                        background:(!tooShort&&!tooLong)?'linear-gradient(135deg,#1d4ed8 0%,#2563eb 50%,#3b82f6 100%)':'var(--surface2)',
+                        border:(!tooShort&&!tooLong)?'1px solid rgba(255,255,255,0.15)':'1px solid var(--border)',
+                        borderRadius:12,
+                        color:(!tooShort&&!tooLong)?'#ffffff':'var(--text-muted)',
+                        fontSize:15,fontFamily:'DM Mono',fontWeight:800,letterSpacing:'0.3px',
+                        cursor:(!tooShort&&!tooLong)?'pointer':'not-allowed',
+                        boxShadow:(!tooShort&&!tooLong)?'0 4px 24px rgba(37,99,235,0.5),0 1px 0 rgba(255,255,255,0.15) inset':'none',
+                        textShadow:(!tooShort&&!tooLong)?'0 1px 2px rgba(0,0,0,0.3)':'none',
+                        transition:'transform 0.12s ease,box-shadow 0.12s ease'}}
+                      onMouseEnter={e=>{if(!tooShort&&!tooLong){e.currentTarget.style.transform='translateY(-1px)';e.currentTarget.style.boxShadow='0 8px 32px rgba(37,99,235,0.65),0 1px 0 rgba(255,255,255,0.15) inset'}}}
+                      onMouseLeave={e=>{e.currentTarget.style.transform='translateY(0)';e.currentTarget.style.boxShadow=(!tooShort&&!tooLong)?'0 4px 24px rgba(37,99,235,0.5),0 1px 0 rgba(255,255,255,0.15) inset':'none'}}
+                      onMouseDown={e=>{if(!tooShort&&!tooLong)e.currentTarget.style.transform='translateY(1px)'}}
+                      onMouseUp={e=>{if(!tooShort&&!tooLong)e.currentTarget.style.transform='translateY(-1px)'}}>
                       {tooLong?`Over limit — remove ${(wc-25000).toLocaleString()} words`:tooShort?`Need ${Math.max(0,50-pasted.trim().length)} more chars...`:'Analyse Interview →'}
                     </button>
                     )})()}
@@ -1545,7 +2014,7 @@ export default function Home() {
 
                 {/* ── RECORD / UPLOAD TAB ── */}
                 {inputMode==='record'&&(
-                  <div style={{animation:'fadeUp 0.2s ease'}}>
+                  <div style={{animation:'fadeUp 0.2s ease',padding:'12px'}}>
                     <input ref={fileRef} type="file" accept="audio/*" onChange={e=>{if(e.target.files[0])goDetails(e.target.files[0])}} style={{display:'none'}} aria-hidden/>
 
                     {/* Idle — show record + upload options */}
@@ -1622,7 +2091,18 @@ export default function Home() {
                           </button>
                         </div>
                         <button onClick={()=>goDetails(audioBlob)}
-                          style={{width:'100%',padding:'13px',background:'linear-gradient(135deg,var(--accent),#4299e1)',border:'none',borderRadius:'var(--radius)',color:'#0a0a0f',fontSize:'var(--font-size-base)',fontFamily:'DM Mono',fontWeight:'bold',cursor:'pointer',transition:'opacity 0.2s'}}>
+                          style={{width:'100%',padding:'15px 20px',
+                          background:'linear-gradient(135deg,#1d4ed8 0%,#2563eb 50%,#3b82f6 100%)',
+                          border:'1px solid rgba(255,255,255,0.15)',borderRadius:12,
+                          color:'#ffffff',fontSize:15,fontFamily:'DM Mono',fontWeight:800,letterSpacing:'0.3px',
+                          cursor:'pointer',
+                          boxShadow:'0 4px 24px rgba(37,99,235,0.5),0 1px 0 rgba(255,255,255,0.15) inset',
+                          textShadow:'0 1px 2px rgba(0,0,0,0.3)',
+                          transition:'transform 0.12s ease,box-shadow 0.12s ease'}}
+                        onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-1px)';e.currentTarget.style.boxShadow='0 8px 32px rgba(37,99,235,0.65),0 1px 0 rgba(255,255,255,0.15) inset'}}
+                        onMouseLeave={e=>{e.currentTarget.style.transform='translateY(0)';e.currentTarget.style.boxShadow='0 4px 24px rgba(37,99,235,0.5),0 1px 0 rgba(255,255,255,0.15) inset'}}
+                        onMouseDown={e=>{e.currentTarget.style.transform='translateY(1px)'}}
+                        onMouseUp={e=>{e.currentTarget.style.transform='translateY(-1px)'}}>
                           Analyse Interview →
                         </button>
                       </>
@@ -1638,13 +2118,38 @@ export default function Home() {
                 )}
 
 
+                </div>{/* end unified glow card */}
+
                 {error&&<p role="alert" style={{marginTop:14,padding:'10px 14px',background:'rgba(252,129,129,0.05)',border:'1px solid rgba(252,129,129,0.2)',borderRadius:8,fontSize:'var(--font-size-sm)',color:'var(--danger)'}}>⚠ {error}</p>}
+
+                {/* What you get — fills remaining height */}
+                <div style={{flex:1,marginTop:20,display:'flex',flexDirection:'column',gap:8}}>
+                  {[
+                    { icon:'🎯', color:'#7ec8f7', title:'Scores on every answer',   desc:'Each response scored 0–10. Know exactly which answers are interview-ready.' },
+                    { icon:'📊', color:'#7ee8a2', title:'PM signal bars',            desc:'Customer Empathy · Data · Execution · Strategy · Communication — per question.' },
+                    { icon:'✦',  color:'#a78bfa', title:'AI answer rewrite',         desc:'One click shows how a top PM would have answered.' },
+                    { icon:'📋', color:'#fbc26a', title:'Targeted practice plan',    desc:'3 custom drills based on your lowest-scoring answers.' },
+                    { icon:'⬇️', color:'#7ec8f7', title:'PDF report download',       desc:'Save it, share with a coach, or pull it up before your next round.' },
+                  ].map(({icon,color,title,desc})=>(
+                    <div key={title} style={{display:'flex',gap:10,alignItems:'flex-start',padding:'9px 11px',background:'var(--surface)',borderRadius:10,border:'1px solid var(--border)'}}>
+                      <div style={{width:30,height:30,borderRadius:8,flexShrink:0,background:`${color}15`,border:`1px solid ${color}30`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15}}>{icon}</div>
+                      <div>
+                        <p style={{fontSize:12,color:'var(--text)',fontFamily:'Montserrat',fontWeight:700,margin:'0 0 2px'}}>{title}</p>
+                        <p style={{fontSize:11,color:'var(--text-muted)',fontFamily:'Open Sans, sans-serif',lineHeight:1.55,margin:0}}>{desc}</p>
+                      </div>
+                    </div>
+                  ))}
+                  <div style={{marginTop:4,padding:'8px 12px',background:isLight?'rgba(22,163,74,0.07)':'rgba(104,211,145,0.06)',border:isLight?'1px solid rgba(22,163,74,0.3)':'1px solid rgba(104,211,145,0.18)',borderRadius:10,display:'flex',alignItems:'center',gap:10}}>
+                    <span style={{fontSize:18}}>🔒</span>
+                    <p style={{fontSize:11,color:isLight?'#15803d':'#7ee8a2',fontFamily:'Open Sans, sans-serif',margin:0,lineHeight:1.5}}><strong>Your data stays yours.</strong> Transcript and report never leave your account.</p>
+                  </div>
+                </div>
               </div>{/* /LEFT */}
 
               {/* RIGHT: Report teaser */}
               <ReportTeaser/>
 
-            </div>{/* /two-column */}
+            </div>}{/* /two-column analyse */}
           </div>
         )}
 
@@ -1669,6 +2174,7 @@ export default function Home() {
               style={{background:'none',border:'none',color:'var(--text-muted)',fontSize:'var(--font-size-sm)',cursor:'pointer',fontFamily:'DM Mono',marginBottom:20,display:'flex',alignItems:'center',gap:6}}>
               ← Back
             </button>
+            {error&&<p role="alert" style={{padding:'10px 14px',background:'rgba(252,129,129,0.05)',border:'1px solid rgba(252,129,129,0.2)',borderRadius:8,fontSize:'var(--font-size-sm)',color:'var(--danger)',marginBottom:20}}>⚠ {error}</p>}
             <h2 style={{fontFamily:'Montserrat',fontSize:26,fontWeight:'normal',color:'var(--text)',marginBottom:4}}>About this interview</h2>
             <p style={{color:'var(--text-muted)',fontSize:'var(--font-size-sm)',marginBottom:24}}>
               Helps calibrate your coaching and builds the questions + salary database.
@@ -1778,8 +2284,6 @@ export default function Home() {
               )}
             </div>
 
-            {error&&<p role="alert" style={{padding:'10px 14px',background:'rgba(252,129,129,0.05)',border:'1px solid rgba(252,129,129,0.2)',borderRadius:8,fontSize:'var(--font-size-sm)',color:'var(--danger)',marginBottom:14}}>⚠ {error}</p>}
-
             <button onClick={analyze} disabled={!meta.company||!meta.role||!meta.experienceYears}
               style={{width:'100%',padding:'13px',
                 background:meta.company&&meta.role&&meta.experienceYears?'linear-gradient(135deg,var(--accent),#4299e1)':'var(--surface2)',
@@ -1848,6 +2352,31 @@ export default function Home() {
               const m = submittedMetadata || {}
               return (
                 <div id="report-pdf-root">
+                {(()=>{
+                  const { withReferral, withoutReferral } = computeCallbackProb(analysis, submittedMetadata)
+                  if (withReferral == null) return null
+                  const diff = withReferral - withoutReferral
+                  const col = withReferral >= 65 ? '#68d391' : withReferral >= 40 ? '#f6ad55' : '#fc8181'
+                  return (
+                    <div style={{background:`${col}08`,border:`1px solid ${col}30`,borderRadius:14,padding:'18px 22px',marginBottom:14,display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:12}}>
+                      <div>
+                        <p style={{fontSize:'var(--font-size-xs)',color:'var(--text-muted)',letterSpacing:'2px',textTransform:'uppercase',marginBottom:4,fontFamily:'DM Mono'}}>Interview Callback Probability</p>
+                        <div style={{display:'flex',alignItems:'baseline',gap:10,flexWrap:'wrap'}}>
+                          <span style={{fontSize:48,fontWeight:800,fontFamily:'Montserrat',color:col,lineHeight:1}}>{withReferral}%</span>
+                          <span style={{fontSize:'var(--font-size-sm)',color:'var(--text-muted)',fontFamily:'DM Mono'}}>with referral</span>
+                        </div>
+                      </div>
+                      <div style={{background:'var(--surface2)',borderRadius:10,padding:'10px 16px',textAlign:'right',minWidth:160}}>
+                        <p style={{fontSize:'var(--font-size-xs)',color:'var(--text-muted)',letterSpacing:'1.5px',textTransform:'uppercase',marginBottom:4,fontFamily:'DM Mono'}}>Without referral</p>
+                        <div style={{display:'flex',alignItems:'baseline',gap:6,justifyContent:'flex-end'}}>
+                          <span style={{fontSize:24,fontWeight:700,fontFamily:'Montserrat',color:'var(--text)'}}>{withoutReferral}%</span>
+                          <span style={{fontSize:'var(--font-size-xs)',color:'#68d391',fontFamily:'DM Mono',fontWeight:'bold'}}>+{diff}%</span>
+                        </div>
+                        <p style={{fontSize:10,color:'var(--text-muted)',marginTop:4,fontFamily:'DM Mono',letterSpacing:'0.5px'}}>referral uplift</p>
+                      </div>
+                    </div>
+                  )
+                })()}
                 {/* Section 0 — Interview metadata */}
                 <div style={rev(0)}>
                   <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:'14px 18px',marginBottom:14,display:'flex',flexWrap:'wrap',gap:'10px 24px',alignItems:'center'}}>

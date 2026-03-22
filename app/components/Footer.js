@@ -2,6 +2,9 @@
 export default function Footer() {
   return (
     <footer style={{
+      position: 'fixed',
+      bottom: 0, left: 0, right: 0,
+      zIndex: 49,
       borderTop: '1px solid var(--border)',
       background: 'var(--nav-bg)',
       backdropFilter: 'blur(12px)',
@@ -10,7 +13,6 @@ export default function Footer() {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
-      marginTop: 'auto',
     }}>
       {/* Left: creator tag */}
       <p style={{
