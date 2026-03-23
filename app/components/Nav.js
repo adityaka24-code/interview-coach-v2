@@ -1,4 +1,5 @@
 'use client'
+import { Suspense } from 'react'
 import { usePathname, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useTheme } from '../context/ThemeContext'
@@ -13,7 +14,8 @@ const links = [
   { href:'/profile', label:'Profile' },
 ]
 
-export default function Nav() {
+// Inner component — uses useSearchParams so must be inside Suspense
+function NavContent() {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const { theme, a11y, toggleTheme, toggleA11y } = useTheme()
@@ -141,5 +143,13 @@ export default function Nav() {
         )}
       </div>
     </header>
+  )
+}
+
+export default function Nav() {
+  return (
+    <Suspense>
+      <NavContent />
+    </Suspense>
   )
 }
