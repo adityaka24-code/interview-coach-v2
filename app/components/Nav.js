@@ -1,8 +1,9 @@
 'use client'
-import { usePathname } from 'next/navigation'
+import { usePathname, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useTheme } from '../context/ThemeContext'
 import BugReportButton from './BugReportButton'
+import { UserButton, SignInButton, useAuth } from '@clerk/nextjs'
 
 const links = [
   { href:'/', label:'Home' },
@@ -14,8 +15,12 @@ const links = [
 
 export default function Nav() {
   const pathname = usePathname()
+  const searchParams = useSearchParams()
   const { theme, a11y, toggleTheme, toggleA11y } = useTheme()
   const isLight = theme === 'light'
+  const { isSignedIn } = useAuth()
+  // When redirected to /sign-in, highlight the tab the user was trying to reach
+  const redirectUrl = pathname === '/sign-in' ? (searchParams.get('redirect_url') || '') : ''
 
   return (
     <header style={{
@@ -40,7 +45,7 @@ export default function Nav() {
       {/* Nav links */}
       <nav style={{ display:'flex', gap:2, flex:1 }} aria-label="Main navigation">
         {links.map(({ href, label }) => {
-          const active = pathname === href
+          const active = pathname === href || (redirectUrl && redirectUrl.startsWith(href) && href !== '/')
           return (
             <Link key={href} href={href} style={{
               textDecoration:'none', padding:'7px 15px', borderRadius:7,
@@ -112,6 +117,28 @@ export default function Nav() {
             {isLight ? '☀' : '◐'}
           </div>
         </button>
+
+        {/* Clerk auth */}
+        {isSignedIn ? (
+          <UserButton
+            appearance={{
+              elements: {
+                avatarBox: { width: 30, height: 30 },
+              },
+            }}
+          />
+        ) : (
+          <SignInButton mode="redirect" forceRedirectUrl={pathname === '/sign-in' ? '/' : pathname}>
+            <button style={{
+              padding:'5px 14px', borderRadius:7,
+              background:'var(--accent)', color:'#fff',
+              fontFamily:'DM Mono', fontSize:13,
+              border:'none', cursor:'pointer',
+            }}>
+              Sign in
+            </button>
+          </SignInButton>
+        )}
       </div>
     </header>
   )

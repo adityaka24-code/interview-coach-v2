@@ -23,8 +23,6 @@ function Shimmer({ width = '100%', height = 16, radius = 6, style = {} }) {
 function ReportSkeleton() {
   return (
     <div style={{ maxWidth: '96vw', margin: '0 auto', padding: '32px 32px', animation: 'fadeUp 0.4s ease' }}>
-
-      {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32 }}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <Shimmer width={280} height={28} radius={6} />
@@ -35,8 +33,6 @@ function ReportSkeleton() {
           <Shimmer width={70} height={34} radius={8} />
         </div>
       </div>
-
-      {/* Callback probability card */}
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 24px', marginBottom: 24, display: 'flex', alignItems: 'center', gap: 24 }}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, flexShrink: 0 }}>
           <Shimmer width={72} height={44} radius={6} />
@@ -52,8 +48,6 @@ function ReportSkeleton() {
           </div>
         </div>
       </div>
-
-      {/* Section: Predicted questions */}
       <Shimmer width={200} height={22} radius={5} style={{ marginBottom: 16 }} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 32 }}>
         {[1,2,3,4,5].map(i => (
@@ -66,8 +60,6 @@ function ReportSkeleton() {
           </div>
         ))}
       </div>
-
-      {/* Section: Gap analysis */}
       <Shimmer width={160} height={22} radius={5} style={{ marginBottom: 16 }} />
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {[1,2,3].map(i => (
@@ -87,73 +79,134 @@ function ReportSkeleton() {
   )
 }
 
+// Section status pill shown during countdown
+function SectionPill({ icon, label, status }) {
+  const colors = {
+    loading: { bg: 'rgba(99,179,237,0.1)',  border: 'rgba(99,179,237,0.3)',  text: '#63b3ed' },
+    done:    { bg: 'rgba(104,211,145,0.1)', border: 'rgba(104,211,145,0.3)', text: '#68d391' },
+    error:   { bg: 'rgba(252,129,129,0.1)', border: 'rgba(252,129,129,0.3)', text: '#fc8181' },
+    waiting: { bg: 'var(--surface)',         border: 'var(--border)',          text: 'var(--text-muted)' },
+  }
+  const c = colors[status] || colors.waiting
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 8,
+      padding: '7px 16px', borderRadius: 24,
+      background: c.bg, border: `1px solid ${c.border}`,
+      fontFamily: 'DM Mono', fontSize: 12, color: c.text,
+      transition: 'all 0.4s ease',
+    }}>
+      <span>{icon}</span>
+      <span>{label}</span>
+      {status === 'loading' && <span style={{ opacity: 0.7, animation: 'pulse 1.2s infinite' }}>…</span>}
+      {status === 'done'    && <span>✓</span>}
+      {status === 'error'   && <span>✗</span>}
+    </div>
+  )
+}
+
 export default function PredictLoadingPage() {
   const router = useRouter()
-  const [count, setCount] = useState(10)
-  const [phase, setPhase] = useState('countdown')  // 'countdown' | 'skeleton'
-  const [error, setError] = useState('')
-  const reportUrlRef = useRef(null)
-  const phaseRef = useRef('countdown')
-  const startedRef = useRef(false)
+  const [count, setCount]   = useState(45)
+  const [phase, setPhase]   = useState('countdown') // 'countdown' | 'skeleton'
+  const [error, setError]   = useState('')
+  const [sections, setSections] = useState({
+    questions: 'loading',
+    gaps:      'loading',
+    callback:  'loading',
+  })
 
-  // Fire API calls immediately, store result when ready
+  const reportUrlRef  = useRef(null)
+  const phaseRef      = useRef('countdown')
+  const startedRef    = useRef(false)
+
+  function setSection(key, status) {
+    setSections(prev => ({ ...prev, [key]: status }))
+  }
+
+  // ── SSE stream ──────────────────────────────────────────────────
   useEffect(() => {
     if (startedRef.current) return
     startedRef.current = true
 
-    const raw = sessionStorage.getItem('predict-params')
-    if (!raw) { router.replace('/'); return }
-    const { company, roleLevel, roundType, jdText, cvText } = JSON.parse(raw)
+    // Try sessionStorage first (navigate-from-form flow)
+    let params = null
+    try {
+      const raw = sessionStorage.getItem('predict-params')
+      if (raw) params = JSON.parse(raw)
+    } catch {}
+
+    if (!params) {
+      // No params — bounce back to predict form
+      router.replace('/predict')
+      return
+    }
+
+    const { company, roleLevel, roundType, jdText, cvText } = params
 
     async function run() {
       try {
-        const [predictRes, cbRes] = await Promise.allSettled([
-          fetch('/api/predict', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ jdText, cvText, roleLevel, roundType, company }),
-          }).then(r => r.json()),
-          fetch('/api/callback-probability', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ cvText, jobDescription: jdText, company, role: roleLevel }),
-          }).then(r => r.json()),
-        ])
+        const res = await fetch('/api/predict', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ jdText, cvText, roleLevel, roundType, company }),
+        })
 
-        if (predictRes.status === 'rejected' || predictRes.value?.error) {
-          setError(predictRes.value?.error || 'Prediction failed. Please try again.')
+        if (!res.ok || !res.body) {
+          const txt = await res.text().catch(() => '')
+          setError(txt || `Server error ${res.status}`)
           return
         }
 
-        const result = {
-          ...predictRes.value,
-          callbackProbability: cbRes.status === 'fulfilled' ? cbRes.value : null,
-        }
+        const reader  = res.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer    = ''
 
-        const saveRes = await fetch('/api/predictions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ company, roleLevel, roundType, jdText, cvText, result }),
-        })
-        const saveData = await saveRes.json()
-        if (!saveRes.ok) { setError(saveData.error || 'Failed to save prediction'); return }
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true })
 
-        sessionStorage.removeItem('predict-params')
-        reportUrlRef.current = `/predict/report/${saveData.id}`
+          const parts = buffer.split('\n\n')
+          buffer = parts.pop()
 
-        // If countdown already done, navigate now
-        if (phaseRef.current === 'skeleton') {
-          router.replace(reportUrlRef.current)
+          for (const chunk of parts) {
+            const eventMatch = chunk.match(/^event:\s*(.+)$/m)
+            const dataMatch  = chunk.match(/^data:\s*(.+)$/m)
+            if (!eventMatch || !dataMatch) continue
+
+            const event = eventMatch[1].trim()
+            let data
+            try { data = JSON.parse(dataMatch[1]) } catch { continue }
+
+            switch (event) {
+              case 'questions':     setSection('questions', 'done');    break
+              case 'gaps':          setSection('gaps',      'done');    break
+              case 'callback':      setSection('callback',  'done');    break
+              case 'section_error': setSection(data.section, 'error'); break
+              case 'fatal':
+                setError(data.message || 'Prediction failed. Please try again.')
+                return
+              case 'complete':
+                sessionStorage.removeItem('predict-params')
+                reportUrlRef.current = `/predict/report/${data.id}`
+                // If countdown already done, navigate immediately
+                if (phaseRef.current === 'skeleton') {
+                  router.replace(reportUrlRef.current)
+                }
+                break
+            }
+          }
         }
       } catch (err) {
-        setError(err.message || 'Something went wrong')
+        setError(err.message || 'Something went wrong. Please try again.')
       }
     }
 
     run()
   }, [router])
 
-  // Countdown tick: 10 → 0 then switch to skeleton
+  // ── Countdown 10 → 0 ───────────────────────────────────────────
   useEffect(() => {
     if (phase !== 'countdown') return
     if (count === 0) {
@@ -166,7 +219,7 @@ export default function PredictLoadingPage() {
     return () => clearTimeout(id)
   }, [count, phase, router])
 
-  // Poll for API result once in skeleton phase
+  // ── Poll for completion once in skeleton phase ──────────────────
   useEffect(() => {
     if (phase !== 'skeleton') return
     const id = setInterval(() => {
@@ -182,15 +235,34 @@ export default function PredictLoadingPage() {
     try { return JSON.parse(sessionStorage.getItem('predict-params') || '{}') } catch { return {} }
   })()
 
+  // ── Error state ─────────────────────────────────────────────────
   if (error) {
     return (
       <div style={{ minHeight: 'calc(100vh - 52px)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: 40 }}>
         <p style={{ fontSize: 32, marginBottom: 16 }}>⚠</p>
-        <p style={{ fontFamily: 'Montserrat', fontSize: 20, fontWeight: 700, color: 'var(--danger)', marginBottom: 10 }}>Something went wrong</p>
-        <p style={{ fontFamily: 'DM Mono', fontSize: 13, color: 'var(--text-muted)', marginBottom: 24, lineHeight: 1.6, textAlign: 'center', maxWidth: 400 }}>{error}</p>
-        <button onClick={() => router.back()} style={{ padding: '11px 28px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text)', fontFamily: 'DM Mono', fontSize: 13, cursor: 'pointer' }}>
-          ← Go back
-        </button>
+        <p style={{ fontFamily: 'Montserrat', fontSize: 20, fontWeight: 700, color: 'var(--danger)', marginBottom: 10 }}>
+          Something went wrong
+        </p>
+        <p style={{ fontFamily: 'DM Mono', fontSize: 13, color: 'var(--text-muted)', marginBottom: 8, lineHeight: 1.6, textAlign: 'center', maxWidth: 440 }}>
+          {error}
+        </p>
+        <p style={{ fontFamily: 'Open Sans', fontSize: 13, color: 'var(--text-muted)', marginBottom: 24, lineHeight: 1.7, textAlign: 'center', maxWidth: 440 }}>
+          <strong>Next steps:</strong> Check your internet connection and try again. If the AI service is busy, wait 30 seconds — the system retries automatically up to 9 times.
+        </p>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <button
+            onClick={() => router.replace('/predict')}
+            style={{ padding: '11px 28px', background: 'linear-gradient(135deg,#1d4ed8,#2563eb)', border: 'none', borderRadius: 10, color: '#fff', fontFamily: 'DM Mono', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
+          >
+            Try again
+          </button>
+          <button
+            onClick={() => router.back()}
+            style={{ padding: '11px 28px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, color: 'var(--text)', fontFamily: 'DM Mono', fontSize: 13, cursor: 'pointer' }}
+          >
+            ← Go back
+          </button>
+        </div>
       </div>
     )
   }
@@ -199,47 +271,72 @@ export default function PredictLoadingPage() {
     <>
       <style dangerouslySetInnerHTML={{ __html: `
         @keyframes shimmer { 0%{transform:translateX(-100%)} 100%{transform:translateX(100%)} }
-        @keyframes fadeUp { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
-        @keyframes countPop { 0%{transform:scale(1.3);opacity:0} 100%{transform:scale(1);opacity:1} }
+        @keyframes fadeUp  { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes pulse   { 0%,100%{opacity:1} 50%{opacity:0.4} }
       `}} />
 
-      {phase === 'countdown' && (
-        <div style={{
-          minHeight: 'calc(100vh - 52px)',
-          display: 'flex', flexDirection: 'column',
-          alignItems: 'center', justifyContent: 'center',
-          gap: 20, padding: 40, background: 'var(--bg)',
-        }}>
-          {/* Countdown number */}
-          <div key={count} style={{
-            fontFamily: 'Montserrat', fontSize: 140, fontWeight: 800,
-            color: 'var(--accent)', lineHeight: 1,
-            animation: 'countPop 0.35s cubic-bezier(0.34,1.56,0.64,1)',
-            textShadow: '0 0 60px var(--accent)',
-            fontVariantNumeric: 'tabular-nums',
+      {phase === 'countdown' && (() => {
+        const RADIUS = 54
+        const CIRC = 2 * Math.PI * RADIUS
+        const pct = (45 - count) / 45
+        return (
+          <div style={{
+            minHeight: 'calc(100vh - 52px)',
+            display: 'flex', flexDirection: 'column',
+            alignItems: 'center', justifyContent: 'center',
+            gap: 20, padding: 40, background: 'var(--bg)',
+            animation: 'fadeUp 0.5s ease',
           }}>
-            {count}
-          </div>
+            {/* Ring + number */}
+            <div style={{ position: 'relative', width: 160, height: 160, marginBottom: 20 }}>
+              <svg width="160" height="160" style={{ transform: 'rotate(-90deg)' }}>
+                <circle cx="80" cy="80" r={RADIUS} fill="none" stroke="var(--surface2)" strokeWidth="6"/>
+                <circle cx="80" cy="80" r={RADIUS} fill="none"
+                  stroke="var(--accent)" strokeWidth="6" strokeLinecap="round"
+                  strokeDasharray={CIRC}
+                  strokeDashoffset={CIRC * (1 - pct)}
+                  style={{ transition: 'stroke-dashoffset 1s linear' }}
+                />
+              </svg>
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+                <span style={{ fontFamily: 'DM Mono', fontSize: 52, fontWeight: 'bold', color: 'var(--text)', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+                  {count > 0 ? count : '✓'}
+                </span>
+                <span style={{ fontFamily: 'DM Mono', fontSize: 11, color: 'var(--text-muted)', letterSpacing: '1px', marginTop: 4 }}>
+                  {count > 0 ? 'seconds' : 'done'}
+                </span>
+              </div>
+            </div>
 
-          <p style={{ fontFamily: 'Montserrat', fontSize: 22, fontWeight: 700, color: 'var(--text)', margin: 0 }}>
-            Building your prediction…
-          </p>
-          <p style={{ fontFamily: 'DM Mono', fontSize: 13, color: 'var(--text-muted)', margin: 0 }}>
-            Your report will appear when the countdown hits zero.
-          </p>
+            <h2 style={{ fontFamily: 'Montserrat', fontSize: 26, fontWeight: 600, color: 'var(--text)', margin: 0, letterSpacing: '-0.3px' }}>
+              Building your prediction
+            </h2>
+            <p style={{ fontFamily: 'DM Mono', fontSize: 13, color: 'var(--text-muted)', margin: 0, lineHeight: 1.7 }}>
+              3 AI analyses running in parallel — results stream in as each completes.
+            </p>
 
-          {/* Context chips */}
-          <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
-            {[params.company, params.roleLevel, params.roundType].filter(Boolean).map(v => (
-              <span key={v} style={{
-                fontFamily: 'DM Mono', fontSize: 12, color: 'var(--text)',
-                background: 'var(--surface)', border: '1px solid var(--border)',
-                borderRadius: 20, padding: '5px 14px',
-              }}>{v}</span>
-            ))}
+            {/* Live section status pills */}
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'center' }}>
+              <SectionPill icon="❓" label="Questions"     status={sections.questions} />
+              <SectionPill icon="🔍" label="Gap analysis"  status={sections.gaps} />
+              <SectionPill icon="📊" label="Callback odds" status={sections.callback} />
+            </div>
+
+            {/* Context chips */}
+            {(params.company || params.roleLevel) && (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'center' }}>
+                {[params.company, params.roleLevel, params.roundType].filter(Boolean).map(v => (
+                  <span key={v} style={{
+                    fontFamily: 'DM Mono', fontSize: 12, color: 'var(--text)',
+                    background: 'var(--surface)', border: '1px solid var(--border)',
+                    borderRadius: 20, padding: '5px 14px',
+                  }}>{v}</span>
+                ))}
+              </div>
+            )}
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {phase === 'skeleton' && <ReportSkeleton />}
     </>

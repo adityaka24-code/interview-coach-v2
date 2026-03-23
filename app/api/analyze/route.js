@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { saveInterview, upsertQuestion, getUser } from '@/lib/db'
+import { auth } from '@clerk/nextjs/server'
 
 // ---------------------------------------------------------------------------
 // Sanitise user input before embedding into the prompt.
@@ -685,8 +686,10 @@ export async function POST(request) {
     }
 
     // 3. Load user profile (non-fatal if DB unavailable)
+    let userId = 'unknown'
+    try { const { userId: uid } = await auth(); userId = uid || 'unknown' } catch {}
     let user = null
-    try { user = await getUser() } catch (e) { console.error('DB user load failed:', e.message) }
+    try { user = await getUser(userId || 'default') } catch (e) { console.error('DB user load failed:', e.message) }
 
     const cvText         = metadata?.cvText        || user?.cv_text        || ''
     const portfolioText  = metadata?.portfolioText || user?.portfolio_text || ''
@@ -850,6 +853,7 @@ export async function POST(request) {
           cvText,
           portfolioText,
           jobDescription,
+          userId,
         })
         console.log('[analyze] Interview saved:', interviewId)
       } catch (dbErr) {

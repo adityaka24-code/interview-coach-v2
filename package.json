@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.24.0",
+    "@clerk/nextjs": "^7.0.6",
     "@libsql/client": "^0.14.0",
     "@react-pdf/renderer": "^4.3.2",
     "mammoth": "^1.7.2",

@@ -11,7 +11,7 @@ const S = {
 }
 
 export default function ProfilePage() {
-  const [form, setForm] = useState({ name:'', email:'', title:'', org:'', cv_text:'', portfolio_text:'' })
+  const [form, setForm] = useState({ name:'', email:'', age:'', title:'', org:'', cv_text:'', portfolio_text:'' })
   const [saved, setSaved] = useState(false)
   const [loading, setLoading] = useState(true)
   const [portfolioUrl, setPortfolioUrl] = useState('')
@@ -20,7 +20,7 @@ export default function ProfilePage() {
   useEffect(() => {
     fetch('/api/profile').then(r=>r.json()).then(d => {
       if (d.user) setForm({
-        name: d.user.name||'', email: d.user.email||'',
+        name: d.user.name||'', email: d.user.email||'', age: d.user.age||'',
         title: d.user.title||'', org: d.user.org||'', cv_text: d.user.cv_text||'',
         portfolio_text: d.user.portfolio_text||'',
       })
@@ -63,9 +63,12 @@ export default function ProfilePage() {
           <h2 style={{ ...S.h2, marginBottom:0 }}>About you</h2>
           <span style={{ fontSize:'var(--font-size-xs)', color:'var(--text-muted)', fontFamily:'DM Mono' }}>— personalises coaching tone &amp; reports</span>
         </div>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr 1fr', gap:12 }}>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12, marginBottom:12 }}>
           <div><label style={S.label} htmlFor="name">Name</label><input id="name" value={form.name} onChange={e=>setF('name',e.target.value)} placeholder="Your name" style={S.input}/></div>
           <div><label style={S.label} htmlFor="email">Email</label><input id="email" value={form.email} onChange={e=>setF('email',e.target.value)} placeholder="you@email.com" style={S.input}/></div>
+          <div><label style={S.label} htmlFor="age">Age <span style={{textTransform:'none',letterSpacing:0,opacity:0.6}}>(optional)</span></label><input id="age" type="number" min="16" max="80" value={form.age} onChange={e=>setF('age',e.target.value)} placeholder="e.g. 28" style={S.input}/></div>
+        </div>
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
           <div><label style={S.label} htmlFor="title">Current role</label><input id="title" value={form.title} onChange={e=>setF('title',e.target.value)} placeholder="e.g. Senior Product Manager" style={S.input}/></div>
           <div><label style={S.label} htmlFor="org">Current org <span style={{textTransform:'none',letterSpacing:0,opacity:0.6}}>(optional)</span></label><input id="org" value={form.org} onChange={e=>setF('org',e.target.value)} placeholder="e.g. Maersk" style={S.input}/></div>
         </div>

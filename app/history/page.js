@@ -77,6 +77,22 @@ export default function HistoryPage() {
   const [loading, setLoading] = useState(true)
   const [predictions, setPredictions] = useState(null)
   const [predictionsCount, setPredictionsCount] = useState(null)
+  const [confirmDelete, setConfirmDelete] = useState(null) // id of interview pending deletion, or null
+
+  async function deleteInterview(id) {
+    await fetch(`/api/interviews?id=${id}`, { method: 'DELETE' })
+    setInterviews(prev => prev.filter(iv => iv.id !== id))
+    setConfirmDelete(null)
+  }
+
+  useEffect(() => {
+    if (!confirmDelete) return
+    function handleClickOutside(e) {
+      if (!e.target.closest('[data-confirm-popover]')) setConfirmDelete(null)
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [confirmDelete])
 
   useEffect(() => {
     fetch('/api/interviews').then(r => r.json()).then(d => {
@@ -172,51 +188,113 @@ export default function HistoryPage() {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {interviews.map((iv, i) => (
-              <Link key={iv.id} href={`/history/${iv.id}`} style={{ textDecoration: 'none' }}>
-                <div style={{
-                  background: 'var(--surface)', border: '1px solid var(--border)',
-                  borderRadius: 14, padding: '18px 22px',
-                  display: 'flex', alignItems: 'center', gap: 20,
-                  transition: 'border-color 0.15s, background 0.15s',
-                  animation: `fadeUp 0.3s ease ${i * 0.05}s both`,
-                  cursor: 'pointer',
-                }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(99,179,237,0.3)'; e.currentTarget.style.background = 'var(--surface2)' }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--surface)' }}
-                >
-                  {/* Score */}
-                  {iv.overall_score ? (
-                    <ScoreRing score={iv.overall_score} size={48} />
-                  ) : (
-                    <div style={{
-                      width: 48, height: 48, borderRadius: 10, flexShrink: 0,
-                      background: 'var(--surface2)', border: '2px solid var(--border)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 15, color: 'var(--text-muted)', fontFamily: 'DM Mono',
-                    }}>–</div>
-                  )}
+              <div key={iv.id} style={{ position: 'relative' }}>
 
-                  {/* Main info */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-                      <span style={{ fontSize: 15, color: 'var(--text)', fontFamily: 'DM Serif Display' }}>{iv.company}</span>
-                      <span style={{ fontSize: 12, color: 'var(--text-muted)', background: 'var(--surface2)', padding: '2px 8px', borderRadius: 20 }}>{iv.role}</span>
-                      <RoundBadge type={iv.round_type} />
-                    </div>
-                    <div style={{ display: 'flex', gap: 14, fontSize: 12, color: 'var(--text-muted)' }}>
-                      {iv.location && <span>📍 {iv.location}</span>}
-                      {iv.experience_years && <span>⏱ {EXPERIENCE_LABELS[iv.experience_years] || iv.experience_years}</span>}
-                      {iv.salary_min && <span style={{ color: '#68d391' }}>💰 {formatSalary(iv.salary_min, iv.salary_max, iv.salary_currency)}</span>}
+                {/* Confirmation popover */}
+                {confirmDelete === iv.id && (
+                  <div data-confirm-popover style={{
+                    position: 'absolute', bottom: 'calc(100% + 8px)', right: 22,
+                    background: 'var(--surface)', border: '1px solid rgba(252,129,129,0.4)',
+                    borderRadius: 10, padding: '12px 16px', zIndex: 50,
+                    boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+                    display: 'flex', flexDirection: 'column', gap: 10, minWidth: 220,
+                  }}>
+                    <p style={{ margin: 0, fontSize: 13, color: 'var(--text)', fontFamily: 'Open Sans, sans-serif', lineHeight: 1.5 }}>
+                      Are you sure you want to delete this report?
+                    </p>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button
+                        onClick={() => deleteInterview(iv.id)}
+                        style={{
+                          flex: 1, padding: '7px 0', borderRadius: 7, border: 'none',
+                          background: 'rgba(252,129,129,0.15)', color: '#fc8181',
+                          fontFamily: 'DM Mono', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                        }}
+                      >
+                        Yes, delete
+                      </button>
+                      <button
+                        onClick={() => setConfirmDelete(null)}
+                        style={{
+                          flex: 1, padding: '7px 0', borderRadius: 7,
+                          border: '1px solid var(--border)', background: 'transparent',
+                          color: 'var(--text-muted)', fontFamily: 'DM Mono', fontSize: 12, cursor: 'pointer',
+                        }}
+                      >
+                        No
+                      </button>
                     </div>
                   </div>
+                )}
 
-                  {/* Date */}
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0, textAlign: 'right' }}>
-                    {new Date(iv.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                    <div style={{ marginTop: 4, color: 'var(--accent)', fontSize: 11 }}>View report →</div>
+                {/* Card — clicking navigates to report */}
+                <Link href={`/history/${iv.id}`} style={{ textDecoration: 'none' }}>
+                  <div style={{
+                    background: 'var(--surface)', border: '1px solid var(--border)',
+                    borderRadius: 14, padding: '18px 22px',
+                    display: 'flex', alignItems: 'center', gap: 20,
+                    transition: 'border-color 0.15s, background 0.15s',
+                    animation: `fadeUp 0.3s ease ${i * 0.05}s both`,
+                    cursor: 'pointer',
+                  }}
+                    onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(99,179,237,0.3)'; e.currentTarget.style.background = 'var(--surface2)' }}
+                    onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.background = 'var(--surface)' }}
+                  >
+                    {/* Score */}
+                    {iv.overall_score ? (
+                      <ScoreRing score={iv.overall_score} size={48} />
+                    ) : (
+                      <div style={{
+                        width: 48, height: 48, borderRadius: 10, flexShrink: 0,
+                        background: 'var(--surface2)', border: '2px solid var(--border)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 15, color: 'var(--text-muted)', fontFamily: 'DM Mono',
+                      }}>–</div>
+                    )}
+
+                    {/* Main info */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+                        <span style={{ fontSize: 15, color: 'var(--text)', fontFamily: 'DM Serif Display' }}>{iv.company}</span>
+                        <span style={{ fontSize: 12, color: 'var(--text-muted)', background: 'var(--surface2)', padding: '2px 8px', borderRadius: 20 }}>{iv.role}</span>
+                        <RoundBadge type={iv.round_type} />
+                      </div>
+                      <div style={{ display: 'flex', gap: 14, fontSize: 12, color: 'var(--text-muted)' }}>
+                        {iv.location && <span>📍 {iv.location}</span>}
+                        {iv.experience_years && <span>⏱ {EXPERIENCE_LABELS[iv.experience_years] || iv.experience_years}</span>}
+                        {iv.salary_min && <span style={{ color: '#68d391' }}>💰 {formatSalary(iv.salary_min, iv.salary_max, iv.salary_currency)}</span>}
+                      </div>
+                    </div>
+
+                    {/* Date */}
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', flexShrink: 0, textAlign: 'right' }}>
+                      {new Date(iv.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      <div style={{ marginTop: 4, color: 'var(--accent)', fontSize: 11 }}>View report →</div>
+                    </div>
                   </div>
+                </Link>
+
+                {/* Delete button — right-aligned below the card */}
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4, paddingRight: 4 }}>
+                  <button
+                    onClick={e => {
+                      e.stopPropagation()
+                      setConfirmDelete(confirmDelete === iv.id ? null : iv.id)
+                    }}
+                    style={{
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      fontSize: 11, color: 'var(--text-muted)', fontFamily: 'DM Mono',
+                      letterSpacing: '0.5px', padding: '4px 8px', borderRadius: 6,
+                      transition: 'color 0.15s',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.color = '#fc8181'}
+                    onMouseLeave={e => e.currentTarget.style.color = 'var(--text-muted)'}
+                  >
+                    Delete report
+                  </button>
                 </div>
-              </Link>
+
+              </div>
             ))}
           </div>
         </>
@@ -232,8 +310,19 @@ export default function HistoryPage() {
           )}
 
           {predictions !== null && predictions.length === 0 && (
-            <div style={{ textAlign: 'center', color: 'var(--text-muted)', padding: 60, fontSize: 14, fontFamily: 'DM Mono' }}>
-              No predictions yet. Go to Predict to generate your first one.
+            <div style={{
+              textAlign: 'center', padding: 60,
+              background: 'var(--surface)', borderRadius: 16, border: '1px solid var(--border)',
+            }}>
+              <div style={{ fontSize: 40, marginBottom: 16 }}>🔮</div>
+              <div style={{ color: 'var(--text)', fontSize: 16, fontFamily: 'DM Serif Display', marginBottom: 8 }}>No predictions yet</div>
+              <div style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 20 }}>Predict questions before your next interview</div>
+              <Link href="/predict" style={{
+                display: 'inline-block', padding: '10px 24px',
+                background: 'linear-gradient(135deg, #63b3ed, #4299e1)',
+                color: '#0a0a0f', borderRadius: 10, textDecoration: 'none',
+                fontFamily: 'DM Mono', fontSize: 13, fontWeight: 'bold',
+              }}>Predict questions →</Link>
             </div>
           )}
 
@@ -241,9 +330,9 @@ export default function HistoryPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {predictions.map((p, i) => {
                 const cb = p.callbackProbability
-                const prob = cb?.probability ?? null
-                const boost = prob != null ? Math.min(Math.round((100 - prob) * 0.35), 28) : 0
-                const boosted = prob != null ? Math.min(prob + boost, 99) : null
+                const prob = cb?.withoutReferral ?? null
+                const boosted = cb?.withReferral ?? (prob != null ? Math.min(prob + Math.min(Math.round((100 - prob) * 0.35), 28), 99) : null)
+                const boost = boosted != null && prob != null ? boosted - prob : 0
                 const probColor = prob == null ? 'var(--text-muted)' : prob >= 65 ? '#3fb950' : prob >= 40 ? '#d29922' : '#f85149'
                 return (
                 <Link key={p.id} href={`/predict/report/${p.id}`} style={{ textDecoration: 'none' }}>

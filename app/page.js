@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import FileDropZone from './components/FileDropZone'
 import { useTheme } from './context/ThemeContext'
+import { useAuth } from '@clerk/nextjs'
 
 // ─── Shared styles ────────────────────────────────────────────────────────────
 const S = {
@@ -223,7 +224,7 @@ function AnswerCard({ answer, index, metadata }) {
 }
 
 function CountdownScreen() {
-  const [count, setCount] = useState(5)
+  const [count, setCount] = useState(45)
   const RADIUS = 54
   const CIRC = 2 * Math.PI * RADIUS
 
@@ -233,7 +234,7 @@ function CountdownScreen() {
     return () => clearTimeout(t)
   }, [count])
 
-  const pct = (5 - count) / 5
+  const pct = (45 - count) / 45
 
   return (
     <div style={{textAlign:'center',animation:'fadeUp 0.5s ease',paddingTop:72,paddingBottom:40,maxWidth:380,margin:'0 auto'}} aria-live="polite">
@@ -345,10 +346,10 @@ function Ticker() {
   const pausedRef = useRef(false)
 
   useEffect(() => {
-    fetch('/api/interviews')
+    fetch('/api/ticker')
       .then(r => r.json())
       .then(d => {
-        const list = (d.interviews || []).slice(0, 10)
+        const list = (d.items || []).slice(0, 20)
         setItems(list)
       })
       .catch(() => {})
@@ -382,34 +383,27 @@ function Ticker() {
   if (items.length === 0) return null
 
   const renderItem = (iv, i) => {
-    const sym  = CURRENCY_SYM_T[iv.salary_currency] || ''
-    const sal  = iv.salary_max
+    const sym = CURRENCY_SYM_T[iv.salary_currency] || ''
+    const sal = iv.salary_max
       ? `${sym}${Number(iv.salary_max).toLocaleString()}`
       : iv.salary_min
         ? `${sym}${Number(iv.salary_min).toLocaleString()}`
         : null
-    const score = iv.overall_score
-    const scoreColor = score >= 7 ? '#68d391' : score >= 5 ? '#f6ad55' : score ? '#fc8181' : 'var(--text-muted)'
 
     return (
       <span key={i} style={{
         display: 'inline-flex', alignItems: 'center', gap: 10,
         padding: '0 28px', borderRight: '1px solid var(--border)',
-        whiteSpace: 'nowrap', fontSize: 'var(--font-size-xs)', fontFamily: 'DM Mono',
+        whiteSpace: 'nowrap', fontSize: 12, fontFamily: 'DM Mono',
       }}>
-        <span style={{ color: 'var(--text-muted)', fontSize: 10 }}>{timeAgoShort(iv.date)}</span>
-        <span style={{ color: 'var(--text)', fontWeight: 500 }}>{iv.company || '—'}</span>
+        <span style={{ color: 'var(--text)', fontWeight: 600 }}>{iv.company || '—'}</span>
         {iv.role && <span style={{ color: 'var(--text-muted)' }}>{iv.role}</span>}
         {sal && (
           <span style={{ color: '#68d391', background: 'rgba(104,211,145,0.08)', border: '1px solid rgba(104,211,145,0.15)', borderRadius: 10, padding: '1px 8px' }}>
             {sal}
           </span>
         )}
-        {score != null && (
-          <span style={{ color: scoreColor, background: `${scoreColor}15`, border: `1px solid ${scoreColor}30`, borderRadius: 10, padding: '1px 8px', fontWeight: 'bold' }}>
-            {score}/10
-          </span>
-        )}
+        <span style={{ color: 'var(--text-muted)', fontSize: 10, opacity: 0.7 }}>{timeAgoShort(iv.date)}</span>
       </span>
     )
   }
@@ -999,15 +993,25 @@ function TranscriptReview({ segments, setSegments, classifying, classifyError, o
           </ul>
         </div>
 
-        <div style={{ marginTop:'auto', display:'flex', flexDirection:'column', gap:8 }}>
+        <div style={{
+          marginTop: 24,
+          position: 'sticky', bottom: 96,
+          display: 'flex', flexDirection: 'column', gap: 8,
+          background: 'var(--bg)',
+          paddingTop: 12,
+          borderTop: '1px solid var(--border)',
+          zIndex: 10,
+        }}>
           <button onClick={onContinue}
             disabled={classifying || segments.filter(s=>s.type!=='answer').length===0}
             style={{ width:'100%', padding:'13px', borderRadius:10, border:'none',
               background:(!classifying&&segments.filter(s=>s.type!=='answer').length>0)
-                ?'linear-gradient(135deg,var(--accent),#4299e1)':'var(--surface2)',
-              color:(!classifying&&segments.filter(s=>s.type!=='answer').length>0)?'#0a0a0f':'var(--text-muted)',
+                ?'linear-gradient(135deg,#1d4ed8,#2563eb)':'var(--surface2)',
+              color:'#fff',
               fontFamily:'Montserrat', fontSize:'var(--font-size-sm)', fontWeight:700,
               cursor:(!classifying&&segments.filter(s=>s.type!=='answer').length>0)?'pointer':'not-allowed',
+              opacity:(!classifying&&segments.filter(s=>s.type!=='answer').length>0)?1:0.45,
+              boxShadow:(!classifying&&segments.filter(s=>s.type!=='answer').length>0)?'0 0 18px rgba(37,99,235,0.35)':'none',
               transition:'all 0.2s' }}>
             {classifying ? 'Classifying…' : 'Continue to Details →'}
           </button>
@@ -1105,6 +1109,26 @@ function PredictTeaser() {
     { risk: 'low',    gap: 'Regulatory & compliance awareness',     signal: 'Strong fintech signal from Razorpay; could strengthen PCI-DSS / AML familiarity' },
   ]
 
+  // Count-up for callback probability — starts after gaps finish
+  const MOCK_CB_WITHOUT = 72
+  const MOCK_CB_WITH = 84
+  const [cbCount, setCbCount] = useState(0)
+  useEffect(() => {
+    const CB_DELAY = MOCK_QUESTIONS.length * STAGGER + MOCK_GAPS.length * STAGGER + STREAM_DURATION
+    let id
+    const startRef = { t: null }
+    function tick(now) {
+      if (startRef.t === null) startRef.t = now
+      const elapsed = now - startRef.t - CB_DELAY
+      if (elapsed < 0) { id = requestAnimationFrame(tick); return }
+      const pct = Math.min(elapsed / 900, 1)
+      setCbCount(Math.round(pct * MOCK_CB_WITHOUT))
+      if (pct < 1) id = requestAnimationFrame(tick)
+    }
+    id = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(id)
+  }, [])
+
   // Typewriter for gap titles — stagger starts after all questions have begun
   const GAP_STAGGER_OFFSET = MOCK_QUESTIONS.length * STAGGER   // 5 * 250 = 1250ms head-start
   const [revealedGaps, setRevealedGaps] = useState(MOCK_GAPS.map(() => 0))
@@ -1153,21 +1177,26 @@ function PredictTeaser() {
         </div>
       </div>
 
-      {/* Callback probability preview */}
-      <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)', background: 'rgba(63,185,80,0.04)' }}>
-        <p style={{ fontSize: 9, color: 'var(--text-muted)', letterSpacing: '1.5px', textTransform: 'uppercase', fontFamily: 'DM Mono', marginBottom: 8 }}>Callback probability</p>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <div style={{ textAlign: 'center', flexShrink: 0 }}>
-            <div style={{ fontSize: 34, fontWeight: 800, color: '#3fb950', fontFamily: 'DM Mono', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{displayProb}%</div>
-            <div style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'DM Mono', marginTop: 2 }}>without referral</div>
+      {/* Callback probability */}
+      <div style={{ padding: '12px 18px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 16 }}>
+        <div style={{ textAlign: 'center', flexShrink: 0 }}>
+          <div style={{ fontSize: 28, fontWeight: 800, color: '#3fb950', fontFamily: 'DM Mono', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+            {cbCount}%
           </div>
-          <div style={{ flex: 1 }}>
-            <p style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.6, margin: '0 0 6px', fontStyle: 'italic' }}>"Strong product instinct and data focus — enterprise GTM gap is the key risk to address."</p>
-            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 10, fontFamily: 'DM Mono', color: '#3fb950', background: 'rgba(63,185,80,0.1)', border: '1px solid rgba(63,185,80,0.2)', borderRadius: 6, padding: '2px 7px' }}>✓ Data-driven</span>
-              <span style={{ fontSize: 10, fontFamily: 'DM Mono', color: '#f85149', background: 'rgba(248,81,73,0.08)', border: '1px solid rgba(248,81,73,0.2)', borderRadius: 6, padding: '2px 7px' }}>✗ Enterprise gap</span>
-            </div>
+          <div style={{ fontSize: 8, color: 'var(--text-muted)', fontFamily: 'DM Mono', marginTop: 2, letterSpacing: '0.8px', textTransform: 'uppercase' }}>without referral</div>
+        </div>
+        <div style={{ width: 1, height: 32, background: 'rgba(63,185,80,0.2)', flexShrink: 0 }} />
+        <div style={{ textAlign: 'center', flexShrink: 0, opacity: cbCount >= MOCK_CB_WITHOUT ? 1 : 0, transition: 'opacity 0.5s ease' }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: '#3fb950', fontFamily: 'DM Mono', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>
+            {MOCK_CB_WITH}% <span style={{ fontSize: 11 }}>+{MOCK_CB_WITH - MOCK_CB_WITHOUT}</span>
           </div>
+          <div style={{ fontSize: 8, color: 'var(--text-muted)', fontFamily: 'DM Mono', marginTop: 2, letterSpacing: '0.8px', textTransform: 'uppercase' }}>with referral</div>
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <p style={{ fontSize: 9, color: 'var(--text-muted)', fontFamily: 'DM Mono', letterSpacing: '1px', textTransform: 'uppercase', margin: '0 0 3px' }}>Callback probability</p>
+          <p style={{ fontSize: 10, color: 'var(--text-muted)', margin: 0, lineHeight: 1.5, fontFamily: 'Open Sans, sans-serif', opacity: cbCount >= MOCK_CB_WITHOUT ? 1 : 0, transition: 'opacity 0.5s ease' }}>
+            Competitive fit — strong product signals, enterprise gap is the key risk.
+          </p>
         </div>
       </div>
 
@@ -1241,12 +1270,18 @@ function PredictPanel() {
       .catch(() => {})
   }, [])
 
+  const jdLen = jdText.trim().length
+  const cvWords = cvText.trim() ? cvText.trim().split(/\s+/).length : 0
+  const jdTooShort = jdLen < 50
+  const cvTooLong = cvWords > 1000
+
   function handleSubmit() {
     if (!company.trim() || !roleLevel.trim() || !roundType.trim()) {
       setError('Company, role level and round type are required.')
       return
     }
-    // Store params and navigate immediately — loading page runs the API calls
+    if (jdTooShort) { setError('Job description must be at least 50 characters.'); return }
+    if (cvTooLong) { setError(`CV is too long — remove ${cvWords - 1000} words (${cvWords}/1000).`); return }
     sessionStorage.setItem('predict-params', JSON.stringify({ company, roleLevel, roundType, jdText, cvText }))
     router.push('/predict/loading')
   }
@@ -1315,21 +1350,30 @@ function PredictPanel() {
 
             {/* JD text */}
             <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-              <label style={pLabel}>Job description (paste text)</label>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+                <label style={{ ...pLabel, margin:0 }}>Job description (paste text) <span style={{ color:'var(--danger)', fontWeight:400 }}>*</span></label>
+                <span style={{ fontSize:11, fontFamily:'DM Mono', color: jdTooShort ? 'var(--danger)' : 'var(--success)' }}>
+                  {jdLen} / 50 min chars{jdLen >= 50 ? ' ✓' : ''}
+                </span>
+              </div>
               <textarea value={jdText} onChange={e => setJdText(e.target.value)}
                 placeholder="Paste the JD here — the more detail, the sharper the prediction."
-                style={{ ...pInput, resize: 'none', lineHeight: 1.6, flex: 1, minHeight: 0 }} />
+                style={{ ...pInput, resize: 'none', lineHeight: 1.6, flex: 1, minHeight: 0,
+                  borderColor: jdTooShort && jdLen > 0 ? 'var(--danger)' : undefined }} />
             </div>
 
             {/* CV text */}
             <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
                 <label style={{ ...pLabel, margin: 0 }}>Your CV / résumé</label>
-                {cvText && <span style={{ fontSize: 10, color: '#3fb950', fontFamily: 'DM Mono' }}>✓ loaded from profile</span>}
+                <span style={{ fontSize:11, fontFamily:'DM Mono', color: cvTooLong ? 'var(--danger)' : cvWords > 0 ? 'var(--success)' : 'var(--text-muted)' }}>
+                  {cvWords} / 1000 words{cvTooLong ? ' — too long' : cvWords > 0 ? ' ✓' : ''}
+                </span>
               </div>
               <textarea value={cvText} onChange={e => setCvText(e.target.value)}
                 placeholder="Paste your CV text — used to surface gaps between your background and the role."
-                style={{ ...pInput, resize: 'none', lineHeight: 1.6, flex: 1, minHeight: 0 }} />
+                style={{ ...pInput, resize: 'none', lineHeight: 1.6, flex: 1, minHeight: 0,
+                  borderColor: cvTooLong ? 'var(--danger)' : undefined }} />
             </div>
 
           </div>
@@ -1381,11 +1425,102 @@ function PredictPanel() {
   )
 }
 
+function AuthGate({ onClose }) {
+  return (
+    <div style={{
+      position:'fixed', inset:0, zIndex:1000,
+      display:'flex', alignItems:'center', justifyContent:'center',
+      backdropFilter:'blur(12px)', WebkitBackdropFilter:'blur(12px)',
+      background:'rgba(10,10,15,0.65)',
+      animation:'fadeUp 0.25s ease',
+    }}>
+      <div style={{
+        background:'var(--surface)', border:'1px solid var(--border)',
+        borderRadius:18, padding:'36px 40px', maxWidth:420, width:'90%',
+        textAlign:'center', boxShadow:'0 24px 80px rgba(0,0,0,0.5)',
+      }}>
+        <div style={{ fontSize:36, marginBottom:12 }}>🔒</div>
+        <h2 style={{ fontFamily:'Montserrat', fontSize:20, fontWeight:700,
+          color:'var(--text)', marginBottom:8 }}>
+          Your report is ready
+        </h2>
+        <p style={{ fontFamily:'DM Mono', fontSize:13, color:'var(--text-muted)',
+          lineHeight:1.7, marginBottom:24 }}>
+          Sign in to unlock and secure your report. It will be saved to your
+          account automatically.
+        </p>
+        <a
+          href="/sign-in"
+          onClick={() => {
+            // Both ic_pending_report and ic_pending_interview_id are already
+            // written by analyze() — nothing to do here.
+          }}
+          style={{
+            display:'block', width:'100%', boxSizing:'border-box',
+            padding:'12px 24px', borderRadius:10,
+            background:'linear-gradient(135deg,#1d4ed8,#2563eb)',
+            color:'#fff', fontFamily:'DM Mono', fontSize:14, fontWeight:700,
+            textDecoration:'none', marginBottom:10, transition:'opacity 0.15s',
+          }}
+          onMouseEnter={e => e.currentTarget.style.opacity = '0.85'}
+          onMouseLeave={e => e.currentTarget.style.opacity = '1'}>
+          Sign in / Sign up with Google
+        </a>
+        <button onClick={onClose} style={{
+          background:'none', border:'none', color:'var(--text-muted)',
+          fontFamily:'DM Mono', fontSize:12, cursor:'pointer', padding:'4px 8px',
+        }}>
+          Maybe later
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function Home() {
   const [stage, setStage] = useState('record')
   const [homeMode, setHomeMode] = useState('predict')
+  const [authPrompt, setAuthPrompt] = useState(false)
   const { theme } = useTheme()
   const isLight = theme === 'light'
+  const { isSignedIn } = useAuth()
+  const isSignedInRef = useRef(false)
+  useEffect(() => { isSignedInRef.current = !!isSignedIn }, [isSignedIn])
+
+  // Restore report on mount — fires immediately after OAuth redirect returns to /
+  // Keep sessionStorage intact so onClose can also read it if analysis state was lost
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem('ic_pending_report')
+      if (!raw) return
+      const saved = JSON.parse(raw)
+      if (!saved?.analysis) return
+      // Clear immediately so navigating back to home doesn't re-trigger this
+      sessionStorage.removeItem('ic_pending_report')
+      setAnalysis(saved.analysis)
+      setInterviewId(saved.interviewId)
+      setSubmittedMetadata(saved.metadata)
+      setFailedQuestions(saved.failedQuestions || [])
+      setStage('report')
+      setHomeMode('analyse')
+      setTimeout(() => { setReportReady(true); setReportComplete(true) }, 200)
+    } catch(_) {}
+  }, []) // mount only — runs before isSignedIn even resolves
+
+  // Once signed in, associate the interview with the user account
+  useEffect(() => {
+    if (!isSignedIn) return
+    try {
+      const id = sessionStorage.getItem('ic_pending_interview_id')
+      if (!id) return
+      sessionStorage.removeItem('ic_pending_interview_id')
+      fetch('/api/save-interview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ interviewId: id }),
+      }).catch(() => {})
+    } catch(_) {}
+  }, [isSignedIn])
 
   // Expose stage to BugReportButton via window
   useEffect(() => { if (typeof window !== 'undefined') window.__appStage = stage }, [stage])
@@ -1412,9 +1547,10 @@ export default function Home() {
   const [showCompletionToast, setShowCompletionToast] = useState(false)
   const [failedQuestions, setFailedQuestions] = useState([])
   const countdownTimerRef = useRef(null)
+  const reportRef = useRef(null)
 
   const [meta, setMeta] = useState({
-    company:'', role:'', location:'', experienceYears:'', roundType:'',
+    company:'', role:'', location:'', experienceYears:'2-5', roundType:'',
     salaryMin:'', salaryMax:'', salaryCurrency:'USD',
     jobDescription:'', jobUrl:'', cvText:'', portfolioText:'',
   })
@@ -1551,7 +1687,9 @@ export default function Home() {
   }
 
   // kept for back-compat
-  const goDetails = (blob=null) => { goTranscript(blob) }
+  const goDetails = (blob=null) => {
+    goTranscript(blob)
+  }
 
   const fetchJobUrl = async () => {
     if (!meta.jobUrl.trim()) return
@@ -1574,9 +1712,7 @@ export default function Home() {
     setShowCompletionToast(false)
     setAnalysis(null)
     setStage('countdown')
-
-    // Switch to report screen after 5 s countdown (API call runs in parallel)
-    countdownTimerRef.current = setTimeout(() => setStage('report'), 5000)
+    try { sessionStorage.removeItem('ic_pending_report') } catch(_) {}
 
     const metadata = {
       company:meta.company, role:meta.role, location:meta.location, experienceYears:meta.experienceYears, roundType:meta.roundType||'unknown',
@@ -1606,6 +1742,19 @@ export default function Home() {
 
       setAnalysis(d.analysis); setInterviewId(d.interviewId); setSubmittedMetadata(metadata)
       setFailedQuestions(d.failedQuestions || [])
+      // Persist to sessionStorage so report survives the OAuth redirect.
+      // Exclude transcript — it can be very large and cause QuotaExceededError.
+      try {
+        sessionStorage.setItem('ic_pending_report', JSON.stringify({
+          analysis: d.analysis,
+          interviewId: d.interviewId,
+          metadata,
+          failedQuestions: d.failedQuestions || [],
+        }))
+        // Also stash interviewId separately here — not in AuthGate onClick,
+        // because the click handler may not fire reliably on mobile/fast taps.
+        sessionStorage.setItem('ic_pending_interview_id', d.interviewId || '')
+      } catch(_) {}
 
       // Ensure we're on the report screen (cancels countdown timer if still running)
       clearTimeout(countdownTimerRef.current)
@@ -1617,7 +1766,9 @@ export default function Home() {
       setTimeout(() => {
         setReportReady(true)
         setReportComplete(true)
-        if (d.allAnswersComplete) {
+        if (!isSignedInRef.current) {
+          setTimeout(() => setAuthPrompt(true), 1500)
+        } else if (d.allAnswersComplete) {
           setTimeout(() => setShowCompletionToast(true), 2000)
         }
       }, 200)
@@ -1634,7 +1785,7 @@ export default function Home() {
     setRecState('idle'); setSegments([]); setClassifyError('')
     setReportReady(false); setReportComplete(false); setShowCompletionToast(false); setFailedQuestions([])
     setTooltip(null); setAddingAfter(null); setNewQText('')
-    setMeta({company:'',role:'',location:'',experienceYears:'',roundType:'',salaryMin:'',salaryMax:'',salaryCurrency:'USD',jobDescription:'',jobUrl:'',cvText:'',portfolioText:''})
+    setMeta({company:'',role:'',location:'',experienceYears:'2-5',roundType:'',salaryMin:'',salaryMax:'',salaryCurrency:'USD',jobDescription:'',jobUrl:'',cvText:'',portfolioText:''})
   }
 
 function computeCallbackProb(analysis, metadata) {
@@ -1651,7 +1802,7 @@ function computeCallbackProb(analysis, metadata) {
   else if (readiness === 'Almost there') base += 0
   else base -= 5
   const withoutReferral = Math.min(Math.max(base, 1), 85)
-  const withReferral    = Math.min(withoutReferral + 18, 99)
+  const withReferral    = Math.min(withoutReferral + Math.round((1 - withoutReferral / 100) * 28), 95)
   return { withReferral, withoutReferral }
 }
 
@@ -1762,20 +1913,6 @@ function computeCallbackProb(analysis, metadata) {
   <h1>${esc(company)} · ${esc(role)}</h1>
   <p class="meta">Interview Report · ${date}${submittedMetadata?.location ? ' · ' + esc(submittedMetadata.location) : ''}${submittedMetadata?.roundType && submittedMetadata.roundType !== 'unknown' ? ' · ' + esc(submittedMetadata.roundType) : ''}</p>
 
-  <div style="border:1px solid ${cbCol}40;border-radius:8px;padding:16px 20px;margin-bottom:20px;display:flex;justify-content:space-between;align-items:center;background:${cbCol}08">
-    <div>
-      <div style="font-size:10px;letter-spacing:2px;text-transform:uppercase;color:#555;margin-bottom:4px">Interview Callback Probability</div>
-      <span style="font-size:44px;font-weight:800;color:${cbCol}">${cbWith}%</span>
-      <span style="font-size:12px;color:#777;margin-left:8px">with referral</span>
-    </div>
-    <div style="text-align:right;background:#f5f5f5;padding:10px 14px;border-radius:6px">
-      <div style="font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#555;margin-bottom:4px">Without referral</div>
-      <span style="font-size:22px;font-weight:700">${cbWithout}%</span>
-      <span style="font-size:11px;color:#16a34a;font-weight:bold;margin-left:6px">+${cbDiff}%</span>
-      <div style="font-size:9px;color:#888;margin-top:3px">referral uplift</div>
-    </div>
-  </div>
-
   <div class="summary">${esc(analysis.overallSummary)}</div>
 
   <div style="margin-bottom:20px">
@@ -1857,16 +1994,29 @@ function computeCallbackProb(analysis, metadata) {
           <div style={{animation:'fadeUp 0.4s ease'}}>
 
             {/* ── Hero ─────────────────────────────────────────────────────── */}
-            <div style={{textAlign:'center',marginBottom:36,paddingTop:12}}>
-              <h1 style={{fontFamily:'Montserrat',fontSize:'clamp(28px,3.5vw,46px)',fontWeight:800,color:'var(--text)',marginBottom:10,letterSpacing:'-0.5px',lineHeight:1.2}}>
-                Your PM interview edge.
+            <div id="predict" style={{textAlign:'center',marginBottom:36,paddingTop:12}}>
+              <h1 style={{fontFamily:'Montserrat',fontSize:'clamp(28px,3.5vw,46px)',fontWeight:800,marginBottom:10,letterSpacing:'-0.5px',lineHeight:1.2,whiteSpace:'nowrap'}}>
+                <span style={{color:'var(--text)'}}>Crack the code.</span>{' '}
+                <span style={{color:'var(--accent)'}}>Land your PM role.</span>
               </h1>
               <p style={{color:'var(--text)',fontSize:20,fontWeight:600,lineHeight:1.4,maxWidth:700,margin:'0 auto 10px',fontFamily:'Open Sans, sans-serif',whiteSpace:'nowrap'}}>
                 🔮 Predict questions before you walk in — 📊 analyse answers after.
               </p>
-              <p style={{color:'var(--text-muted)',fontSize:11,lineHeight:1.7,maxWidth:560,margin:'0 auto 22px',fontFamily:'DM Mono',opacity:0.7}}>
-                Trained on <strong style={{color:'var(--text)',fontFamily:'DM Mono'}}>6,000+ real PM interview questions</strong> across Google, Meta, Stripe, Airbnb and more — predictions are matched to your specific role, round type, and JD. Callback probability is calibrated against real hiring outcomes in the dataset.
-              </p>
+              <div style={{display:'flex',flexWrap:'nowrap',justifyContent:'center',gap:8,margin:'0 auto 22px',maxWidth:'100%',overflowX:'auto'}}>
+                {[
+                  '📚 6,000+ real PM questions',
+                  '🏢 Google · Meta · Stripe · Airbnb',
+                  '🎯 Matched to your role & JD',
+                  '📊 Calibrated callback probability',
+                ].map(t => (
+                  <span key={t} style={{
+                    padding:'5px 13px', borderRadius:20,
+                    background:'var(--surface2)', border:'1px solid var(--border)',
+                    color:'var(--text-muted)', fontFamily:'DM Mono', fontSize:12,
+                    letterSpacing:'0.01em',
+                  }}>{t}</span>
+                ))}
+              </div>
               {/* Predict / Analyse pill toggle */}
               <div style={{
                 display:'inline-flex', padding:5, gap:5, borderRadius:18,
@@ -1874,7 +2024,7 @@ function computeCallbackProb(analysis, metadata) {
                 border:'1px solid var(--border)',
                 boxShadow:'0 0 0 4px rgba(99,179,237,0.08), 0 8px 32px rgba(0,0,0,0.35)',
               }}>
-                <button onClick={()=>setHomeMode('predict')}
+                <button onClick={()=>{ setHomeMode('predict'); setAuthPrompt(false) }}
                   style={{
                     display:'flex', alignItems:'center', gap:10,
                     padding:'14px 28px', borderRadius:13, border:'none', cursor:'pointer',
@@ -1889,7 +2039,7 @@ function computeCallbackProb(analysis, metadata) {
                   </svg>
                   Predict interview questions
                 </button>
-                <button onClick={()=>setHomeMode('analyse')}
+                <button onClick={()=>{ setHomeMode('analyse'); setAuthPrompt(false) }}
                   style={{
                     display:'flex', alignItems:'center', gap:10,
                     padding:'14px 28px', borderRadius:13, border:'none', cursor:'pointer',
@@ -1907,8 +2057,9 @@ function computeCallbackProb(analysis, metadata) {
               </div>
             </div>
 
+
             {/* ── Predict mode ──────────────────────────────────────────────── */}
-            {homeMode==='predict'&&<PredictPanel/>}
+            {homeMode==='predict'&&<PredictPanel />}
 
             {/* ── Two-column layout (analyse mode) ──────────────────────────── */}
             {homeMode==='analyse'&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:32,alignItems:'stretch'}}>
@@ -2284,13 +2435,15 @@ function computeCallbackProb(analysis, metadata) {
               )}
             </div>
 
-            <button onClick={analyze} disabled={!meta.company||!meta.role||!meta.experienceYears}
+            <button onClick={analyze} disabled={!meta.company||!meta.role}
               style={{width:'100%',padding:'13px',
-                background:meta.company&&meta.role&&meta.experienceYears?'linear-gradient(135deg,var(--accent),#4299e1)':'var(--surface2)',
+                background:meta.company&&meta.role?'linear-gradient(135deg,#1d4ed8,#2563eb)':'var(--surface2)',
                 border:'none',borderRadius:'var(--radius)',
-                color:meta.company&&meta.role&&meta.experienceYears?'#0a0a0f':'var(--text-muted)',
+                color:'#fff',
                 fontSize:'var(--font-size-base)',fontFamily:'DM Mono',fontWeight:'bold',
-                cursor:meta.company&&meta.role&&meta.experienceYears?'pointer':'not-allowed',
+                cursor:meta.company&&meta.role?'pointer':'not-allowed',
+                opacity:meta.company&&meta.role?1:0.45,
+                boxShadow:meta.company&&meta.role?'0 0 20px rgba(37,99,235,0.35)':'none',
                 transition:'all 0.2s'}}>
               Analyze Interview →
             </button>
@@ -2302,7 +2455,7 @@ function computeCallbackProb(analysis, metadata) {
 
         {/* ── REPORT ─────────────────────────────────────────────────────── */}
         {stage==='report'&&(
-          <div style={{animation:'fadeUp 0.4s ease'}}>
+          <div ref={reportRef} style={{animation:'fadeUp 0.4s ease'}}>
           {/* Waiting for API while already past countdown */}
           {!analysis&&(
             <div style={{textAlign:'center',padding:'80px 0',color:'var(--text-muted)'}}>
@@ -2321,18 +2474,20 @@ function computeCallbackProb(analysis, metadata) {
                   </span>
                 )}
                 {interviewId&&<Link href={`/history/${interviewId}`} style={{background:'transparent',border:'1px solid var(--border)',color:'var(--text-muted)',padding:'7px 14px',borderRadius:20,fontSize:'var(--font-size-xs)',fontFamily:'DM Mono',textDecoration:'none'}}>History</Link>}
-                <button onClick={reportComplete ? downloadPDF : undefined} disabled={!reportComplete}
-                  title={reportComplete ? 'Download PDF' : 'Waiting for all answers to complete…'}
+                <button
+                  onClick={reportComplete && isSignedIn ? downloadPDF : isSignedIn ? undefined : () => setAuthPrompt(true)}
+                  disabled={!reportComplete}
+                  title={!isSignedIn ? 'Sign in to download PDF' : reportComplete ? 'Download PDF' : 'Waiting for all answers to complete…'}
                   style={{
-                    background: reportComplete ? 'rgba(104,211,145,0.12)' : 'rgba(104,211,145,0.04)',
-                    border: `1px solid ${reportComplete ? 'rgba(104,211,145,0.4)' : 'rgba(104,211,145,0.15)'}`,
-                    color: reportComplete ? '#68d391' : 'rgba(104,211,145,0.35)',
+                    background: reportComplete && isSignedIn ? 'rgba(104,211,145,0.12)' : 'rgba(104,211,145,0.04)',
+                    border: `1px solid ${reportComplete && isSignedIn ? 'rgba(104,211,145,0.4)' : 'rgba(104,211,145,0.15)'}`,
+                    color: reportComplete && isSignedIn ? '#68d391' : 'rgba(104,211,145,0.35)',
                     padding:'7px 16px',borderRadius:20,fontSize:'var(--font-size-xs)',
-                    cursor: reportComplete ? 'pointer' : 'not-allowed',
+                    cursor: !reportComplete ? 'not-allowed' : isSignedIn ? 'pointer' : 'pointer',
                     fontFamily:'DM Mono',fontWeight:'bold',transition:'all 0.3s',
                   }}
-                  onMouseEnter={e=>{ if(reportComplete) e.currentTarget.style.background='rgba(104,211,145,0.22)' }}
-                  onMouseLeave={e=>{ if(reportComplete) e.currentTarget.style.background='rgba(104,211,145,0.12)' }}>
+                  onMouseEnter={e=>{ if(reportComplete && isSignedIn) e.currentTarget.style.background='rgba(104,211,145,0.22)' }}
+                  onMouseLeave={e=>{ if(reportComplete && isSignedIn) e.currentTarget.style.background='rgba(104,211,145,0.04)' }}>
                   {reportComplete ? '↓ PDF' : '⌛ PDF'}
                 </button>
                 <button onClick={reset} style={{background:'transparent',border:'1px solid var(--border)',color:'var(--text-muted)',padding:'7px 14px',borderRadius:20,fontSize:'var(--font-size-xs)',cursor:'pointer',fontFamily:'DM Mono'}}>← New</button>
@@ -2352,31 +2507,6 @@ function computeCallbackProb(analysis, metadata) {
               const m = submittedMetadata || {}
               return (
                 <div id="report-pdf-root">
-                {(()=>{
-                  const { withReferral, withoutReferral } = computeCallbackProb(analysis, submittedMetadata)
-                  if (withReferral == null) return null
-                  const diff = withReferral - withoutReferral
-                  const col = withReferral >= 65 ? '#68d391' : withReferral >= 40 ? '#f6ad55' : '#fc8181'
-                  return (
-                    <div style={{background:`${col}08`,border:`1px solid ${col}30`,borderRadius:14,padding:'18px 22px',marginBottom:14,display:'flex',alignItems:'center',justifyContent:'space-between',flexWrap:'wrap',gap:12}}>
-                      <div>
-                        <p style={{fontSize:'var(--font-size-xs)',color:'var(--text-muted)',letterSpacing:'2px',textTransform:'uppercase',marginBottom:4,fontFamily:'DM Mono'}}>Interview Callback Probability</p>
-                        <div style={{display:'flex',alignItems:'baseline',gap:10,flexWrap:'wrap'}}>
-                          <span style={{fontSize:48,fontWeight:800,fontFamily:'Montserrat',color:col,lineHeight:1}}>{withReferral}%</span>
-                          <span style={{fontSize:'var(--font-size-sm)',color:'var(--text-muted)',fontFamily:'DM Mono'}}>with referral</span>
-                        </div>
-                      </div>
-                      <div style={{background:'var(--surface2)',borderRadius:10,padding:'10px 16px',textAlign:'right',minWidth:160}}>
-                        <p style={{fontSize:'var(--font-size-xs)',color:'var(--text-muted)',letterSpacing:'1.5px',textTransform:'uppercase',marginBottom:4,fontFamily:'DM Mono'}}>Without referral</p>
-                        <div style={{display:'flex',alignItems:'baseline',gap:6,justifyContent:'flex-end'}}>
-                          <span style={{fontSize:24,fontWeight:700,fontFamily:'Montserrat',color:'var(--text)'}}>{withoutReferral}%</span>
-                          <span style={{fontSize:'var(--font-size-xs)',color:'#68d391',fontFamily:'DM Mono',fontWeight:'bold'}}>+{diff}%</span>
-                        </div>
-                        <p style={{fontSize:10,color:'var(--text-muted)',marginTop:4,fontFamily:'DM Mono',letterSpacing:'0.5px'}}>referral uplift</p>
-                      </div>
-                    </div>
-                  )
-                })()}
                 {/* Section 0 — Interview metadata */}
                 <div style={rev(0)}>
                   <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:12,padding:'14px 18px',marginBottom:14,display:'flex',flexWrap:'wrap',gap:'10px 24px',alignItems:'center'}}>
@@ -2487,6 +2617,15 @@ function computeCallbackProb(analysis, metadata) {
         {/* ── COMPLETION TOAST ─────────────────────────────────────────────── */}
         {showCompletionToast&&<CompletionToast onDismiss={()=>setShowCompletionToast(false)}/>}
       </div>
+      {authPrompt && <AuthGate onClose={() => {
+        setAuthPrompt(false)
+        setStage('report')
+        setHomeMode('analyse')
+        // Clear pending report from sessionStorage — it's already in React state,
+        // so we don't need it anymore. Prevents it from re-appearing on next Home mount.
+        try { sessionStorage.removeItem('ic_pending_report') } catch(_) {}
+        setTimeout(() => window.scrollTo({ top: 0, behavior: 'smooth' }), 100)
+      }} />}
     </div>
   )
 }

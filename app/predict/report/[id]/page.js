@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
+import { useAuth } from '@clerk/nextjs'
 
 const labelStyle = {
   fontSize: 11,
@@ -74,11 +75,13 @@ const riskOrder = { high: 0, medium: 1, low: 2 }
 export default function PredictionReportPage() {
   const { id } = useParams()
   const router = useRouter()
+  const { isSignedIn } = useAuth()
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [visibleSections, setVisibleSections] = useState(0)  // streams sections in one by one
   const [expandedIndex, setExpandedIndex] = useState(0)
+  const [cbLoading, setCbLoading] = useState(false)
 
   useEffect(() => {
     fetch(`/api/predictions/${id}`)
@@ -86,7 +89,6 @@ export default function PredictionReportPage() {
       .then(json => {
         if (json.error) { setError(json.error); return }
         setData(json.prediction)
-        // Stream sections in one by one with 150ms stagger
         const TOTAL = 6
         for (let i = 1; i <= TOTAL; i++) {
           setTimeout(() => setVisibleSections(i), i * 150)
@@ -95,6 +97,39 @@ export default function PredictionReportPage() {
       .catch(err => setError(err.message || 'Failed to load report'))
       .finally(() => setLoading(false))
   }, [id])
+
+  // If callbackProbability is missing, silently recompute in the background (3 retries in API)
+  useEffect(() => {
+    if (!data) return
+    if (data.result?.callbackProbability) return   // already present, nothing to do
+    setCbLoading(true)
+    fetch(`/api/predictions/${id}/callback`, { method: 'POST' })
+      .then(r => r.json())
+      .then(json => {
+        if (json.callbackProbability) {
+          setData(prev => ({
+            ...prev,
+            result: {
+              ...prev.result,
+              callbackProbability: json.callbackProbability,
+              signals: json.signals,
+            },
+          }))
+        }
+      })
+      .catch(() => {})   // fail silently — rest of report still shows
+      .finally(() => setCbLoading(false))
+  }, [data?.id])
+
+  // When the user signs in while viewing this report, claim it so it appears in Activity
+  useEffect(() => {
+    if (!isSignedIn || !id) return
+    fetch(`/api/predictions/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ claim: true }),
+    }).catch(() => {})   // fire-and-forget, no UI change needed
+  }, [isSignedIn, id])
 
   async function handleWasAsked(typeIndex, questionIndex, value) {
     const cloned = JSON.parse(JSON.stringify(data))
@@ -159,6 +194,31 @@ export default function PredictionReportPage() {
         }
       `}} />
 
+      {/* Auth nudge banner for unauthenticated users */}
+      {isSignedIn === false && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          flexWrap: 'wrap', gap: 10,
+          background: 'rgba(99,179,237,0.06)', border: '1px solid rgba(99,179,237,0.25)',
+          borderRadius: 10, padding: '12px 18px', marginBottom: 20,
+        }}>
+          <p style={{ fontFamily: 'DM Mono', fontSize: 13, color: 'var(--text-muted)', margin: 0, lineHeight: 1.5 }}>
+            This report is not saved to an account. Sign in to keep it and download PDF.
+          </p>
+          <a
+            href={`/sign-in?redirect_url=/predict/report/${id}`}
+            style={{
+              padding: '7px 16px', borderRadius: 8, flexShrink: 0,
+              background: 'linear-gradient(135deg,#1d4ed8,#2563eb)',
+              color: '#fff', fontFamily: 'DM Mono', fontSize: 12, fontWeight: 700,
+              textDecoration: 'none', whiteSpace: 'nowrap',
+            }}
+          >
+            Sign in / Sign up
+          </a>
+        </div>
+      )}
+
       {/* Header row */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 32, ...streamStyle(1) }}>
         <div>
@@ -193,39 +253,78 @@ export default function PredictionReportPage() {
           >
             ← New prediction
           </button>
-          <a
-            href={`/api/predictions/${id}/pdf`}
-            download
-            style={{
-              background: 'var(--accent)',
-              border: 'none',
-              borderRadius: 8,
-              padding: '8px 16px',
-              fontSize: 13,
-              color: 'white',
-              cursor: 'pointer',
-              fontFamily: 'DM Mono',
-              textDecoration: 'none',
-              display: 'inline-block',
-            }}
-            aria-label="Download PDF"
-          >
-            Download PDF
-          </a>
+          {isSignedIn ? (
+            <a
+              href={`/api/predictions/${id}/pdf`}
+              download
+              style={{
+                background: 'var(--accent)',
+                border: 'none',
+                borderRadius: 8,
+                padding: '8px 16px',
+                fontSize: 13,
+                color: 'white',
+                cursor: 'pointer',
+                fontFamily: 'DM Mono',
+                textDecoration: 'none',
+                display: 'inline-block',
+              }}
+              aria-label="Download PDF"
+            >
+              Download PDF
+            </a>
+          ) : (
+            <a
+              href={`/sign-in?redirect_url=/predict/report/${id}`}
+              style={{
+                background: 'var(--surface2)',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                padding: '8px 16px',
+                fontSize: 13,
+                color: 'var(--text-muted)',
+                cursor: 'pointer',
+                fontFamily: 'DM Mono',
+                textDecoration: 'none',
+                display: 'inline-block',
+              }}
+              title="Sign in to download PDF"
+              aria-label="Sign in to download PDF"
+            >
+              🔒 Download PDF
+            </a>
+          )}
         </div>
       </div>
 
       {/* Callback probability banner */}
       <div style={streamStyle(2)}>
+      {!data.result?.callbackProbability && cbLoading && (
+        <div style={{
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: 14, marginBottom: 24, padding: '20px 28px',
+          display: 'flex', alignItems: 'center', gap: 14,
+        }}>
+          <div style={{
+            width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
+            border: '2px solid var(--accent)', borderTopColor: 'transparent',
+            animation: 'spin 0.8s linear infinite',
+          }} />
+          <span style={{ fontFamily: 'DM Mono', fontSize: 13, color: 'var(--text-muted)' }}>
+            Computing callback probability…
+          </span>
+          <style dangerouslySetInnerHTML={{ __html: '@keyframes spin{to{transform:rotate(360deg)}}' }} />
+        </div>
+      )}
       {data.result?.callbackProbability && (() => {
         const cb = data.result.callbackProbability
-        const prob = cb.probability ?? null
+        const signals = data.result.signals
+        const prob = cb.withoutReferral ?? null
         if (prob == null) return null
+        const withRef = cb.withReferral ?? Math.min(prob + Math.min(Math.round((100 - prob) * 0.35), 28), 99)
+        const boost = withRef - prob
         const col = prob >= 65 ? '#3fb950' : prob >= 40 ? '#d29922' : '#f85149'
-        const colBg = prob >= 65 ? 'rgba(63,185,80,0.06)' : prob >= 40 ? 'rgba(210,153,34,0.06)' : 'rgba(248,81,73,0.05)'
         const colBorder = prob >= 65 ? 'rgba(63,185,80,0.25)' : prob >= 40 ? 'rgba(210,153,34,0.25)' : 'rgba(248,81,73,0.2)'
-        const boost = Math.min(Math.round((100 - prob) * 0.35), 28)
-        const boostedProb = Math.min(prob + boost, 99)
         const verdict = prob >= 65 ? 'Strong fit' : prob >= 40 ? 'Borderline' : 'Weak fit'
         return (
           <div style={{ background: 'var(--surface)', border: `1px solid ${colBorder}`, borderRadius: 14, marginBottom: 24, overflow: 'hidden' }}>
@@ -242,7 +341,7 @@ export default function PredictionReportPage() {
               {/* With referral */}
               <div style={{ padding: '20px 28px', textAlign: 'center', borderRight: `1px solid ${colBorder}`, background: 'rgba(63,185,80,0.04)' }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'center', gap: 6 }}>
-                  <div style={{ fontSize: 48, fontWeight: 800, color: '#3fb950', fontFamily: 'DM Mono', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{boostedProb}%</div>
+                  <div style={{ fontSize: 48, fontWeight: 800, color: '#3fb950', fontFamily: 'DM Mono', lineHeight: 1, fontVariantNumeric: 'tabular-nums' }}>{withRef}%</div>
                   <span style={{ fontSize: 14, fontWeight: 700, color: '#3fb950', fontFamily: 'DM Mono' }}>+{boost}</span>
                 </div>
                 <div style={{ fontSize: 11, fontWeight: 600, color: '#3fb950', fontFamily: 'DM Mono', letterSpacing: '1px', textTransform: 'uppercase', marginTop: 6 }}>With referral</div>
@@ -260,12 +359,12 @@ export default function PredictionReportPage() {
             </div>
 
             {/* Bottom row: signals */}
-            {(cb.signals?.strong?.length > 0 || cb.signals?.weak?.length > 0) && (
+            {(signals?.strengths?.length > 0 || signals?.risks?.length > 0) && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0 }}>
                 <div style={{ padding: '14px 20px', borderRight: `1px solid ${colBorder}` }}>
                   <div style={{ fontSize: 10, fontWeight: 700, color: '#3fb950', fontFamily: 'DM Mono', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: 8 }}>✓ Strengths</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                    {cb.signals.strong.map((s, i) => (
+                    {signals.strengths.map((s, i) => (
                       <span key={i} style={{ fontSize: 12, color: 'var(--text)', fontFamily: 'Open Sans, sans-serif', lineHeight: 1.5 }}>· {s}</span>
                     ))}
                   </div>
@@ -273,7 +372,7 @@ export default function PredictionReportPage() {
                 <div style={{ padding: '14px 20px' }}>
                   <div style={{ fontSize: 10, fontWeight: 700, color: '#f85149', fontFamily: 'DM Mono', letterSpacing: '1px', textTransform: 'uppercase', marginBottom: 8 }}>✗ Gaps to address</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-                    {cb.signals.weak.map((s, i) => (
+                    {signals.risks.map((s, i) => (
                       <span key={i} style={{ fontSize: 12, color: 'var(--text)', fontFamily: 'Open Sans, sans-serif', lineHeight: 1.5 }}>· {s}</span>
                     ))}
                   </div>
@@ -405,7 +504,34 @@ export default function PredictionReportPage() {
         Areas the interviewer will likely probe based on your CV vs this JD.
       </p>
 
-      {sortedGaps.map((gap, i) => {
+      {(!sortedGaps || sortedGaps.length === 0) ? (
+        <div style={{
+          padding: '24px 28px',
+          background: 'rgba(251,191,36,0.05)',
+          border: '1px solid rgba(251,191,36,0.2)',
+          borderRadius: 14,
+          textAlign: 'center',
+        }}>
+          <div style={{ fontSize: 28, marginBottom: 10 }}>⚠️</div>
+          <p style={{ fontFamily: 'Montserrat', fontWeight: 700, fontSize: 15, color: 'var(--text)', margin: '0 0 8px' }}>
+            Gap analysis unavailable
+          </p>
+          <p style={{ fontFamily: 'DM Mono', fontSize: 13, color: 'var(--text-muted)', margin: '0 0 18px', lineHeight: 1.7 }}>
+            This section failed to generate. Your predicted questions are still available above.
+            <br />Regenerate a new prediction to get the full gap analysis.
+          </p>
+          <a
+            href="/predict"
+            style={{
+              display: 'inline-block', padding: '9px 22px', borderRadius: 8,
+              background: 'linear-gradient(135deg,#1d4ed8,#2563eb)', color: '#fff',
+              fontFamily: 'DM Mono', fontSize: 13, fontWeight: 700, textDecoration: 'none',
+            }}
+          >
+            ↩ New prediction
+          </a>
+        </div>
+      ) : sortedGaps.map((gap, i) => {
         const riskColor = gap.probeRisk === 'high' ? '#fc8181' : gap.probeRisk === 'medium' ? '#f6ad55' : '#68d391'
         const riskBg    = gap.probeRisk === 'high' ? 'rgba(252,129,129,0.06)' : gap.probeRisk === 'medium' ? 'rgba(251,191,36,0.06)' : 'rgba(104,211,145,0.06)'
         const riskBorder= gap.probeRisk === 'high' ? 'rgba(252,129,129,0.28)' : gap.probeRisk === 'medium' ? 'rgba(251,191,36,0.28)' : 'rgba(104,211,145,0.28)'
@@ -451,19 +577,17 @@ export default function PredictionReportPage() {
           <div style={{ borderTop: `1px solid ${riskBorder}`, display: 'flex', flexDirection: 'column', gap: 0 }}>
             {[
               { key: 'cvImprovement', label: 'CV improvement', icon: '📄', color: '#68d391', bg: 'rgba(104,211,145,0.05)', border: 'rgba(104,211,145,0.15)' },
-              { key: 'interviewTip',  label: 'Interview tip',  icon: '🎯', color: 'var(--accent)', bg: 'rgba(99,179,237,0.04)',  border: 'rgba(99,179,237,0.15)' },
+              { key: 'interviewTip',  label: 'Interview tip',  icon: '🎯', color: 'var(--accent)', bg: 'rgba(99,179,237,0.04)', border: 'rgba(99,179,237,0.15)' },
               { key: 'other',         label: 'Study resource', icon: '📚', color: '#a78bfa', bg: 'rgba(167,139,250,0.04)', border: 'rgba(167,139,250,0.15)' },
             ].map(({ key, label, icon, color, bg, border }, ki) => {
               const text = gap.prepAdvice?.[key] || gap.prepAdvice
               if (!text || typeof text === 'object') return null
               return (
                 <div key={key} style={{ display: 'flex', gap: 0, borderTop: ki > 0 ? `1px solid ${riskBorder}` : 'none' }}>
-                  {/* Left label column */}
                   <div style={{ width: 140, flexShrink: 0, padding: '14px 16px', background: bg, borderRight: `1px solid ${border}`, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', justifyContent: 'flex-start', gap: 4 }}>
                     <span style={{ fontSize: 16 }}>{icon}</span>
                     <span style={{ fontSize: 10, fontWeight: 700, color, fontFamily: 'DM Mono', letterSpacing: '0.8px', textTransform: 'uppercase', lineHeight: 1.3 }}>{label}</span>
                   </div>
-                  {/* Right text column */}
                   <div style={{ flex: 1, padding: '14px 18px' }}>
                     <p style={{ fontSize: 13, color: 'var(--text)', margin: 0, lineHeight: 1.75 }}>{text}</p>
                   </div>
