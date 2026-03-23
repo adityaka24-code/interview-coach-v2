@@ -8,7 +8,6 @@ const isPublicRoute = createRouteMatcher([
   '/salaries(.*)',
   '/api/questions(.*)',
   '/api/salaries(.*)',
-  // Processing routes — safe for unauthenticated use (save with user_id='unknown')
   '/api/parse-file(.*)',
   '/api/fetch-url(.*)',
   '/api/transcribe(.*)',
@@ -21,35 +20,30 @@ const isPublicRoute = createRouteMatcher([
   '/api/predict(.*)',
   '/predict(.*)',
   '/api/predictions(.*)',
+  '/onboarding(.*)',
 ])
 
 export default clerkMiddleware(async (auth, req) => {
-  const pathname = req.nextUrl.pathname
+  try {
+    const pathname = req.nextUrl.pathname
 
-  // Public routes — no auth needed
-  if (isPublicRoute(req)) return NextResponse.next()
+    // Public routes — no auth needed
+    if (isPublicRoute(req)) return NextResponse.next()
 
-  // Require authentication
-  const { userId } = await auth()
-  if (!userId) {
-    const signInUrl = new URL('/sign-in', req.url)
-    signInUrl.searchParams.set('redirect_url', pathname)
-    return NextResponse.redirect(signInUrl)
-  }
-
-  // Onboarding gate only applies to page routes, not API calls
-  if (!pathname.startsWith('/api/')) {
-    const onboardingComplete = req.cookies.get('ic_onboarded')?.value === '1'
-
-    if (!onboardingComplete && pathname !== '/onboarding') {
-      return NextResponse.redirect(new URL('/onboarding', req.url))
+    // Require authentication
+    const { userId } = await auth()
+    if (!userId) {
+      const signInUrl = new URL('/sign-in', req.url)
+      signInUrl.searchParams.set('redirect_url', pathname)
+      return NextResponse.redirect(signInUrl)
     }
-    if (onboardingComplete && pathname === '/onboarding') {
-      return NextResponse.redirect(new URL('/', req.url))
-    }
-  }
 
-  return NextResponse.next()
+    return NextResponse.next()
+  } catch (err) {
+    // If Clerk is misconfigured or throws, fail open so the app stays reachable
+    console.error('[middleware] error:', err?.message ?? err)
+    return NextResponse.next()
+  }
 })
 
 export const config = {
