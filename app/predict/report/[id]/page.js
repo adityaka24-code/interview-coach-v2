@@ -238,7 +238,7 @@ export default function PredictionReportPage() {
         </div>
         <div className="no-print" style={{ display: 'flex', gap: 10, flexShrink: 0, marginLeft: 24 }}>
           <button
-            onClick={() => router.push('/predict')}
+            onClick={() => router.push('/')}
             style={{
               background: 'none',
               border: '1px solid var(--border)',
