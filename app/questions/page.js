@@ -29,8 +29,8 @@ const EXP_OPTS = [
   {v:'12+', l:'12+ yrs'},
 ]
 
-const SOURCE_LABELS = { user:'👤 Users', reddit:'🔴 Reddit', glassdoor:'🟢 Glassdoor', linkedin:'💼 LinkedIn' }
-const SOURCE_COLORS = { user:'var(--accent)', reddit:'#ff4500', glassdoor:'#0caa41', linkedin:'#0077b5' }
+const SOURCE_LABELS = { user:'👤 Users', reddit:'🔴 Reddit', glassdoor:'🟢 Glassdoor', linkedin:'💼 LinkedIn', lewis_lin:'Lewis Lin · Public' }
+const SOURCE_COLORS = { user:'var(--accent)', reddit:'#ff4500', glassdoor:'#0caa41', linkedin:'#0077b5', lewis_lin:'#7ec8f7' }
 
 function timeAgo(dateStr) {
   const d = new Date(dateStr), now = new Date()
@@ -56,6 +56,8 @@ const QUESTION_TYPES = [
 
 export default function QuestionsPage() {
   const [questions, setQuestions] = useState([])
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
   const [filters, setFilters] = useState({ company:'', role:'', experienceYears:'', search:'', source:'', questionType:'', sortBy:'recency' })
   const [options, setOptions] = useState({ companies:[], roles:[], sources:[], qCompanies:[] })
   const [loading, setLoading] = useState(true)
@@ -67,24 +69,32 @@ export default function QuestionsPage() {
   const fetchQ = useCallback(() => {
     setLoading(true)
     const params = new URLSearchParams(Object.entries(filters).filter(([,v])=>v))
+    params.set('page', page)
     fetch(`/api/questions?${params}`).then(r=>r.json()).then(d=>{
       setQuestions(d.questions||[])
+      setTotal(d.total ?? d.questions?.length ?? 0)
       setLoading(false)
     })
-  }, [filters])
+  }, [filters, page])
 
   useEffect(() => { const t=setTimeout(fetchQ,250); return()=>clearTimeout(t) }, [fetchQ])
 
-  const setF = (k,v) => setFilters(f=>({...f,[k]:v}))
+  const setF = (k,v) => {
+    setPage(1)
+    setFilters(f=>({...f,[k]:v}))
+  }
   const allCompanies = [...new Set([...(options.companies||[]),...(options.qCompanies||[])])].sort()
   const allSources = [...new Set([...(options.sources||[])])].filter(Boolean)
+
+  const PAGE_SIZE = 50
+  const totalPages = Math.ceil(total / PAGE_SIZE)
 
   return (
     <div style={{ maxWidth:900, margin:'0 auto', padding:'36px 24px' }}>
       <div style={{ marginBottom:24 }}>
         <h1 style={{ fontFamily:'Montserrat', fontSize:28, fontWeight:700, color:'var(--text)', marginBottom:4 }}>Question Bank</h1>
         <p style={{ color:'var(--text-muted)', fontSize:'var(--font-size-sm)' }}>
-          {loading ? 'Loading...' : `${questions.length} questions`}
+          {loading ? 'Loading...' : `${total.toLocaleString()} question${total !== 1 ? 's' : ''}${total > PAGE_SIZE ? ` · showing ${(page-1)*PAGE_SIZE+1}–${Math.min(page*PAGE_SIZE, total)}` : ''}`}
         </p>
       </div>
 
@@ -168,7 +178,7 @@ export default function QuestionsPage() {
         </div>
 
         {Object.values(filters).some(v=>v&&v!=='recency') && (
-          <button onClick={()=>setFilters({company:'',role:'',experienceYears:'',search:'',source:'',questionType:'',sortBy:'recency'})}
+          <button onClick={()=>{ setPage(1); setFilters({company:'',role:'',experienceYears:'',search:'',source:'',questionType:'',sortBy:'recency'}) }}
             style={{ padding:'5px 12px', borderRadius:20, border:'1px solid var(--border)', background:'transparent', color:'var(--text-muted)', fontFamily:'DM Mono', fontSize:'var(--font-size-xs)', cursor:'pointer' }}>
             × Clear
           </button>
@@ -237,6 +247,39 @@ export default function QuestionsPage() {
           )
         })}
       </div>
+
+      {/* Pagination */}
+      {!loading && totalPages > 1 && (
+        <div style={{ display:'flex', justifyContent:'center', alignItems:'center', gap:8, marginTop:24 }}>
+          <button
+            onClick={()=>{ setPage(p=>Math.max(1,p-1)); window.scrollTo({top:0,behavior:'smooth'}) }}
+            disabled={page===1}
+            style={{
+              padding:'6px 14px', borderRadius:8, border:'1px solid var(--border)',
+              background:'var(--surface)', color:page===1?'var(--text-muted)':'var(--text)',
+              fontFamily:'DM Mono', fontSize:'var(--font-size-xs)', cursor:page===1?'default':'pointer',
+              opacity:page===1?0.4:1,
+            }}
+            aria-label="Previous page"
+          >← Prev</button>
+
+          <span style={{ fontFamily:'DM Mono', fontSize:'var(--font-size-xs)', color:'var(--text-muted)' }}>
+            Page {page} of {totalPages}
+          </span>
+
+          <button
+            onClick={()=>{ setPage(p=>Math.min(totalPages,p+1)); window.scrollTo({top:0,behavior:'smooth'}) }}
+            disabled={page===totalPages}
+            style={{
+              padding:'6px 14px', borderRadius:8, border:'1px solid var(--border)',
+              background:'var(--surface)', color:page===totalPages?'var(--text-muted)':'var(--text)',
+              fontFamily:'DM Mono', fontSize:'var(--font-size-xs)', cursor:page===totalPages?'default':'pointer',
+              opacity:page===totalPages?0.4:1,
+            }}
+            aria-label="Next page"
+          >Next →</button>
+        </div>
+      )}
     </div>
   )
 }

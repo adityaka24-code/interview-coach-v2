@@ -72,6 +72,7 @@ ANTHROPIC_API_KEY=sk-ant-...       # Claude API — analysis, transcript classif
 OPENAI_API_KEY=sk-...              # OpenAI Whisper — audio transcription only
 TURSO_DATABASE_URL=libsql://...    # Turso remote SQLite URL
 TURSO_AUTH_TOKEN=...               # Turso auth token
+VOYAGE_API_KEY=...                 # Voyage AI embeddings — RAG question retrieval
 ```
 
 Never commit `.env.local`.
@@ -240,6 +241,7 @@ const parsed = JSON.parse(repairJSON(claudeRawText))
 | `Promise.allSettled` in question queries | Multiple optional filter queries — partial failure should not crash the endpoint |
 | Dynamic imports for pdf-parse/mammoth/officeparser | These packages are Node.js-only; dynamic import prevents Next.js build errors |
 | Turso (libSQL) over local SQLite | Persists data on Vercel serverless (no writable filesystem) |
+| Voyage AI for embeddings | Free tier, Anthropic-aligned, purpose-built for RAG. Used for semantic retrieval of real interview questions from pm_questions table. |
 
 ---
 

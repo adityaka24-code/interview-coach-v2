@@ -72,6 +72,48 @@ function riskBadgeStyle(risk) {
 
 const riskOrder = { high: 0, medium: 1, low: 2 }
 
+function SourceBadge({ source, sourceLabel, sourceUrl }) {
+  const SOURCE_COLORS = {
+    lewis_lin:      { bg: 'rgba(99,179,237,0.12)',  text: '#7ec8f7',  border: 'rgba(99,179,237,0.3)'  },
+    glassdoor:      { bg: 'rgba(104,211,145,0.12)', text: '#68d391',  border: 'rgba(104,211,145,0.3)' },
+    user_submitted: { bg: 'rgba(167,139,250,0.12)', text: '#a78bfa',  border: 'rgba(167,139,250,0.3)' },
+    reddit:         { bg: 'rgba(251,191,36,0.12)',  text: '#f6ad55',  border: 'rgba(251,191,36,0.3)'  },
+  }
+  const c = SOURCE_COLORS[source] || SOURCE_COLORS.lewis_lin
+  const label = sourceLabel || source || 'Unknown source'
+
+  const inner = (
+    <span style={{
+      fontSize: 10,
+      fontFamily: 'DM Mono',
+      color: c.text,
+      background: c.bg,
+      border: `1px solid ${c.border}`,
+      borderRadius: 12,
+      padding: '2px 8px',
+      whiteSpace: 'nowrap',
+      display: 'inline-block',
+    }}>
+      {label}
+    </span>
+  )
+
+  if (sourceUrl) {
+    return (
+      <a
+        href={sourceUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{ textDecoration: 'none' }}
+        aria-label={`Source: ${label} (opens in new tab)`}
+      >
+        {inner}
+      </a>
+    )
+  }
+  return inner
+}
+
 export default function PredictionReportPage() {
   const { id } = useParams()
   const router = useRouter()
@@ -82,6 +124,10 @@ export default function PredictionReportPage() {
   const [visibleSections, setVisibleSections] = useState(0)  // streams sections in one by one
   const [expandedIndex, setExpandedIndex] = useState(0)
   const [cbLoading, setCbLoading] = useState(false)
+  const [lowConfidence, setLowConfidence] = useState(false)
+  const [retrievedQuestions, setRetrievedQuestions] = useState([])
+  const [retrievalMode, setRetrievalMode] = useState('none')
+  const [sourcesExpanded, setSourcesExpanded] = useState(false)
 
   useEffect(() => {
     fetch(`/api/predictions/${id}`)
@@ -89,7 +135,10 @@ export default function PredictionReportPage() {
       .then(json => {
         if (json.error) { setError(json.error); return }
         setData(json.prediction)
-        const TOTAL = 6
+        setLowConfidence(!!json.prediction?.lowConfidence)
+        setRetrievedQuestions(json.prediction?.retrievedQuestions || [])
+        setRetrievalMode(json.prediction?.retrievalMode || 'none')
+        const TOTAL = 7
         for (let i = 1; i <= TOTAL; i++) {
           setTimeout(() => setVisibleSections(i), i * 150)
         }
@@ -170,6 +219,8 @@ export default function PredictionReportPage() {
   const wasAskedButtonStyle = (q, value) => {
     const selected = q.wasAsked === value
     if (selected && value === 'yes') return { color: '#68d391', border: '1px solid #68d391', background: 'rgba(104,211,145,0.1)' }
+    if (selected && value === 'no') return { color: '#fc8181', border: '1px solid #fc8181', background: 'rgba(252,129,129,0.1)' }
+    if (selected && value === 'not_yet') return { color: '#f6ad55', border: '1px solid #f6ad55', background: 'rgba(246,173,85,0.1)' }
     return { color: 'var(--text-muted)', border: '1px solid var(--border)', background: 'var(--surface)' }
   }
 
@@ -386,6 +437,32 @@ export default function PredictionReportPage() {
 
       {/* Predicted questions */}
       <div style={streamStyle(3)}>
+
+      {lowConfidence && (
+        <div style={{
+          display: 'flex',
+          alignItems: 'flex-start',
+          gap: 10,
+          background: 'rgba(251,191,36,0.06)',
+          border: '1px solid rgba(251,191,36,0.25)',
+          borderRadius: 10,
+          padding: '10px 16px',
+          marginBottom: 16,
+        }}>
+          <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>⚠</span>
+          <p style={{
+            fontSize: 12,
+            fontFamily: 'DM Mono',
+            color: 'var(--text-muted)',
+            margin: 0,
+            lineHeight: 1.65,
+          }}>
+            These predictions are based on role patterns — fewer real
+            questions available for this company.
+          </p>
+        </div>
+      )}
+
       <h2 style={{
         fontFamily: 'Montserrat',
         fontSize: 20,
@@ -396,6 +473,126 @@ export default function PredictionReportPage() {
       }}>
         Predicted questions
       </h2>
+
+      {(() => {
+        const firstGroup = data.result?.predictedQuestions?.[0]
+        const topQ = data.result?.predictedQuestions
+          ?.flatMap(g => g.questions.map(q => ({ ...q, questionType: g.questionType })))
+          ?.find(q => q.probability === 'high')
+          ?? (firstGroup?.questions?.[0]
+            ? { ...firstGroup.questions[0], questionType: firstGroup.questionType }
+            : null)
+
+        if (!topQ) return null
+
+        let topTypeIndex = 0, topQuestionIndex = 0
+        data.result.predictedQuestions.forEach((g, gi) => {
+          g.questions.forEach((q, qi) => {
+            if (q.question === topQ.question) {
+              topTypeIndex = gi
+              topQuestionIndex = qi
+            }
+          })
+        })
+
+        const liveQ = data.result.predictedQuestions[topTypeIndex]
+          ?.questions[topQuestionIndex]
+
+        return (
+          <div style={{
+            background: 'var(--surface)',
+            border: '1px solid rgba(99,179,237,0.35)',
+            borderRadius: 14,
+            marginBottom: 20,
+            overflow: 'hidden',
+          }}>
+            <div style={{
+              background: 'rgba(99,179,237,0.07)',
+              borderBottom: '1px solid rgba(99,179,237,0.2)',
+              padding: '8px 18px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
+            }}>
+              <span style={{ fontSize: 14 }}>🎯</span>
+              <span style={{
+                fontSize: 10,
+                fontFamily: 'DM Mono',
+                color: 'var(--accent)',
+                letterSpacing: '1.5px',
+                textTransform: 'uppercase',
+                fontWeight: 700,
+              }}>
+                Most likely to be asked
+              </span>
+              <span style={{
+                marginLeft: 'auto',
+                fontSize: 10,
+                fontFamily: 'DM Mono',
+                color: 'var(--text-muted)',
+                background: 'var(--surface2)',
+                padding: '2px 8px',
+                borderRadius: 12,
+                border: '1px solid var(--border)',
+              }}>
+                {topQ.questionType}
+              </span>
+            </div>
+            <div style={{ padding: '16px 18px' }}>
+              <p style={{
+                fontSize: 15,
+                fontWeight: 600,
+                color: 'var(--text)',
+                margin: '0 0 10px',
+                lineHeight: 1.55,
+                fontFamily: 'Montserrat',
+              }}>
+                {topQ.question}
+              </p>
+              <p style={{
+                fontSize: 12,
+                color: 'var(--text-muted)',
+                margin: 0,
+                lineHeight: 1.65,
+              }}>
+                <span style={{ fontFamily: 'DM Mono' }}>Why: </span>
+                {topQ.rationale}
+              </p>
+              <div className="no-print" style={{
+                display: 'flex', gap: 8, marginTop: 12, alignItems: 'center',
+              }}>
+                <span style={{
+                  fontSize: 11, fontFamily: 'DM Mono',
+                  color: 'var(--text-muted)', marginRight: 4,
+                }}>
+                  Was this asked?
+                </span>
+                {[
+                  { value: 'yes', label: 'Yes' },
+                  { value: 'no', label: 'No' },
+                  { value: 'not_yet', label: 'Not yet' },
+                ].map(({ value, label }) => (
+                  <button
+                    key={value}
+                    onClick={() => handleWasAsked(topTypeIndex, topQuestionIndex, value)}
+                    style={{
+                      padding: '3px 10px',
+                      borderRadius: 20,
+                      fontSize: 11,
+                      fontFamily: 'DM Mono',
+                      cursor: 'pointer',
+                      ...wasAskedButtonStyle(liveQ, value),
+                    }}
+                    aria-pressed={liveQ?.wasAsked === value}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {data.result?.predictedQuestions?.map((group, gi) => {
         const isExpanded = expandedIndex === gi
@@ -599,6 +796,161 @@ export default function PredictionReportPage() {
         )
       })}
       </div>
+
+      {retrievedQuestions.length > 0 && (
+        <div style={{ marginTop: 36, ...streamStyle(5) }}>
+
+          {/* Section header — always visible, clickable to expand */}
+          <button
+            onClick={() => setSourcesExpanded(e => !e)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              padding: 0,
+              marginBottom: sourcesExpanded ? 16 : 0,
+              width: '100%',
+              textAlign: 'left',
+            }}
+            aria-expanded={sourcesExpanded}
+            aria-controls="sources-panel"
+          >
+            <span style={{
+              fontFamily: 'Montserrat',
+              fontSize: 18,
+              fontWeight: 'normal',
+              color: 'var(--text)',
+            }}>
+              Sources used
+            </span>
+            <span style={{
+              fontSize: 11,
+              fontFamily: 'DM Mono',
+              color: 'var(--text-muted)',
+              background: 'var(--surface2)',
+              border: '1px solid var(--border)',
+              borderRadius: 12,
+              padding: '2px 8px',
+            }}>
+              {retrievedQuestions.length} questions
+            </span>
+
+            {/* retrievalMode label */}
+            {retrievalMode === 'role_fallback' && (
+              <span style={{
+                fontSize: 10,
+                fontFamily: 'DM Mono',
+                color: 'var(--warning)',
+                background: 'rgba(251,191,36,0.08)',
+                border: '1px solid rgba(251,191,36,0.25)',
+                borderRadius: 12,
+                padding: '2px 8px',
+              }}>
+                Role pattern match — no company-specific data
+              </span>
+            )}
+            {retrievalMode === 'company_match' && (
+              <span style={{
+                fontSize: 10,
+                fontFamily: 'DM Mono',
+                color: 'var(--accent2)',
+                background: 'rgba(126,232,162,0.08)',
+                border: '1px solid rgba(126,232,162,0.2)',
+                borderRadius: 12,
+                padding: '2px 8px',
+              }}>
+                Company-specific match
+              </span>
+            )}
+
+            <span style={{
+              marginLeft: 'auto',
+              fontSize: 14,
+              color: 'var(--text-muted)',
+            }}>
+              {sourcesExpanded ? '▾' : '▸'}
+            </span>
+          </button>
+
+          {/* Expandable question list */}
+          {sourcesExpanded && (
+            <div
+              id="sources-panel"
+              style={{
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                borderRadius: 12,
+                overflow: 'hidden',
+              }}
+            >
+              {/* Column headers */}
+              <div style={{
+                display: 'grid',
+                gridTemplateColumns: '1fr 120px 100px',
+                gap: 0,
+                padding: '8px 16px',
+                background: 'var(--surface2)',
+                borderBottom: '1px solid var(--border)',
+              }}>
+                {['Question', 'Type', 'Source'].map(h => (
+                  <span key={h} style={{
+                    fontSize: 10,
+                    fontFamily: 'DM Mono',
+                    color: 'var(--text-muted)',
+                    letterSpacing: '1px',
+                    textTransform: 'uppercase',
+                  }}>
+                    {h}
+                  </span>
+                ))}
+              </div>
+
+              {/* Question rows */}
+              {retrievedQuestions.map((q, i) => (
+                <div
+                  key={i}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 120px 100px',
+                    gap: 0,
+                    padding: '10px 16px',
+                    borderBottom: i < retrievedQuestions.length - 1
+                      ? '1px solid var(--border)'
+                      : 'none',
+                    alignItems: 'center',
+                  }}
+                >
+                  <span style={{
+                    fontSize: 13,
+                    color: 'var(--text)',
+                    lineHeight: 1.5,
+                    paddingRight: 16,
+                  }}>
+                    {q.question}
+                  </span>
+                  <span style={{
+                    fontSize: 11,
+                    fontFamily: 'DM Mono',
+                    color: 'var(--text-muted)',
+                  }}>
+                    {q.question_type || '—'}
+                  </span>
+                  <div>
+                    <SourceBadge
+                      source={q.source}
+                      sourceLabel={q.source_label}
+                      sourceUrl={q.source_url}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </main>
   )
 }

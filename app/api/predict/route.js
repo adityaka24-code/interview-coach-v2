@@ -1,31 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { getDb, savePrediction } from '@/lib/db'
+import { getQuestionsForRetrieval, savePrediction, savePredictionFeedback } from '@/lib/db'
+import { embedText, cosineSimilarity, preprocessQuery } from '@/lib/embeddings'
 import { auth } from '@clerk/nextjs/server'
 
 const anthropic = new Anthropic()
 
-/* ─── helpers ─────────────────────────────────────────────────── */
-function normalizeType(raw) {
-  if (!raw) return 'OTHER'
-  const t = raw.toLowerCase()
-  if (t.includes('behav') || t.includes('leadership')) return 'BEHAVIOURAL'
-  if (t.includes('estimat') || t.includes('guesstim')) return 'ESTIMATION'
-  if (t.includes('analytic') || t.includes('metric')) return 'METRIC'
-  if (t.includes('execution') || t.includes('delivery') || t.includes('prioriti')) return 'EXECUTION'
-  if (t.includes('strategy')) return 'STRATEGY'
-  if (t.includes('case')) return 'CASE STUDY'
-  if (t.includes('technical') || t.includes('system design')) return 'TECHNICAL'
-  if (t.includes('design')) return 'PRODUCT REDESIGN'
-  if (t.includes('improvement') || t.includes('improve')) return 'PRODUCT IMPROVEMENT'
-  if (t.includes('sense') || t.includes('product')) return 'PRODUCT SENSE'
-  return 'OTHER'
-}
-function normalizeRound(raw) {
-  if (!raw) return 'screening'
-  const t = raw.toLowerCase()
-  if (t.includes('on-site') || t.includes('onsite') || t.includes('in-person') || t.includes('panel')) return 'loop'
-  return 'screening'
-}
 
 /**
  * Exponential-backoff retry.
@@ -159,10 +138,15 @@ const CALLBACK_TOOL = {
 
 /* ─── individual Claude callers ──────────────────────────────── */
 
-async function fetchQuestions({ systemBase, seedContext, jd, cv, roleLevel, roundType, company }) {
+async function fetchQuestions({ systemBase, retrievalContext, jd, cv, roleLevel, roundType, company }) {
+  const retrievalBlock = retrievalContext
+    ? `\n${retrievalContext}\n\nGround your predictions in the provided real questions. Identify patterns across them.\n`
+    : ''
+
   const prompt = `${systemBase}
 
 TASK: Predict the most likely interview questions for this role.
+Return predictions ordered by likelihood, most likely first. The first prediction should be the single most likely question to be asked.
 ROUND TYPE: ${roundType}
 ROLE LEVEL: ${roleLevel}
 COMPANY: ${company || 'not specified'}
@@ -172,10 +156,7 @@ QUESTION TYPES TO PREDICT (3 questions each):
 - Loop:      PRODUCT SENSE, BEHAVIOURAL, METRIC, EXECUTION, STRATEGY (5-6 types)
 - Panel:     all relevant types (6-8 types)
 Only include a type if the JD genuinely signals it.
-
-REAL QUESTIONS ASKED AT TOP COMPANIES (style/difficulty calibration — do not repeat verbatim):
-${seedContext}
-
+${retrievalBlock}
 JOB DESCRIPTION:
 ${jd}
 
@@ -314,38 +295,59 @@ export async function POST(request) {
   let userId = null
   try { const { userId: uid } = await auth(); userId = uid || null } catch {}
 
-  // Seed questions for calibration
-  let seedContext = ''
+  // ── Retrieval pipeline ────────────────────────────────────────
+  const queryText = preprocessQuery(company, roleLevel, jdText || '')
+
+  let queryVector = null
   try {
-    const db = getDb()
-    let seedRows = []
-    if (company) {
-      const r = await db.execute({
-        sql: `SELECT question, question_type, interview_type FROM pm_questions
-              WHERE company LIKE ? AND question != '' ORDER BY RANDOM() LIMIT 20`,
-        args: [`%${company}%`],
-      })
-      seedRows = r.rows
-    }
-    const remaining = 40 - seedRows.length
-    if (remaining > 0) {
-      const r2 = await db.execute({
-        sql: `SELECT question, question_type, interview_type FROM pm_questions
-              WHERE question != '' ORDER BY RANDOM() LIMIT ?`,
-        args: [remaining],
-      })
-      seedRows = [...seedRows, ...r2.rows]
-    }
-    seedContext = seedRows
-      .map(r => `[${normalizeType(r.question_type)} / ${normalizeRound(r.interview_type)}] ${r.question}`)
-      .join('\n')
+    queryVector = await embedText(queryText)
   } catch (e) {
-    console.error('[predict] seed fetch error:', e.message)
+    console.error('[predict] embedText error:', e.message)
+  }
+
+  let top25 = []
+  let topScore = 0
+  let companyMatch = false
+  try {
+    const { questions: candidates, companyMatch: cm } = await getQuestionsForRetrieval(company)
+    companyMatch = cm
+
+    if (queryVector !== null && candidates.length > 0) {
+      const scored = candidates.flatMap(c => {
+        let vec
+        try { vec = JSON.parse(c.embedding) } catch { return [] }
+        const ageInDays = (Date.now() - new Date(c.timestamp).getTime()) / 86400000
+        const decay = Math.exp(-0.001 * ageInDays)
+        const confirmations = c.confirmation_count ?? 0
+        const confirmationBoost = 1 + (0.05 * Math.min(confirmations, 10))
+        return [{ ...c, _score: cosineSimilarity(queryVector, vec) * decay * confirmationBoost }]
+      })
+      scored.sort((a, b) => b._score - a._score)
+      top25 = scored.slice(0, 25)
+      topScore = top25[0]?._score ?? 0
+
+    }
+  } catch (e) {
+    console.error('[predict] retrieval error:', e.message)
+  }
+
+  const lowConfidence = (
+    queryVector === null ||
+    top25.length < 8 ||
+    topScore < 0.65 ||
+    companyMatch === false
+  )
+
+  let retrievalContext = ''
+  if (!lowConfidence) {
+    retrievalContext =
+      `Here are real questions asked at ${company} interviews:\n` +
+      top25.map((q, i) => `${i + 1}. [${q.question_type}] ${q.question}`).join('\n')
   }
 
   const systemBase = `You are a world-class PM interview coach. Given a job description and candidate CV, your job is to help the candidate prepare.`
 
-  const ctx = { systemBase, seedContext, jd, cv, roleLevel, roundType, company }
+  const ctx = { systemBase, retrievalContext, jd, cv, roleLevel, roundType, company }
 
   /* ── SSE stream ─────────────────────────────────────────────── */
   const encoder = new TextEncoder()
@@ -418,8 +420,53 @@ export async function POST(request) {
           callbackProbability: callbackResult?.callbackProbability || null,
           signals:             callbackResult?.signals             || null,
         }
-        const id = await savePrediction({ company, roleLevel, roundType, jdText, cvText, result, userId })
-        send('complete', { id })
+        const retrievedQuestions = top25.map((q, i) => ({
+          rank:          i + 1,
+          question:      q.question,
+          question_type: q.question_type,
+          company:       q.company,
+          source:        q.source        || 'lewis_lin',
+          source_label:  q.source_label  || 'Lewis Lin PM Question Bank',
+          source_url:    q.source_url    || null,
+          score:         parseFloat(q._score.toFixed(4)),
+        }))
+        const retrievalMode =
+          queryVector === null   ? 'none'
+          : !companyMatch        ? 'role_fallback'
+          : top25.length < 8     ? 'none'
+          : topScore < 0.65      ? 'none'
+          :                        'company_match'
+        const id = await savePrediction({
+          company, roleLevel, roundType, jdText, cvText,
+          result, userId,
+          lowConfidence,
+          retrievedQuestions,
+          retrievalMode,
+        })
+        send('complete', {
+          id,
+          lowConfidence,
+          retrievalMode,
+          topQuestion: questionsResult.predictedQuestions?.[0] || null,
+        })
+
+        // Fire-and-forget: record each retrieved question as a feedback seed
+        if (retrievalContext) {
+          ;(async () => {
+            try {
+              for (const q of top25) {
+                await savePredictionFeedback({
+                  predictionId: id,
+                  questionText: q.question,
+                  wasAsked: false,
+                  interviewId: null,
+                })
+              }
+            } catch (err) {
+              console.error('[predict] savePredictionFeedback error:', err.message)
+            }
+          })()
+        }
       } catch (err) {
         console.error('[predict] DB save error:', err)
         send('fatal', { message: 'Report generated but failed to save. Please try again.' })

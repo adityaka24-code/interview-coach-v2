@@ -12,6 +12,7 @@
     "@clerk/nextjs": "^7.0.6",
     "@libsql/client": "^0.14.0",
     "@react-pdf/renderer": "^4.3.2",
+    "dotenv": "^17.4.0",
     "mammoth": "^1.7.2",
     "next": "15.2.8",
     "officeparser": "^4.1.2",

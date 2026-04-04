@@ -1,82 +1,76 @@
 import { NextResponse } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
-import { getDb } from '@/lib/db'
+import { getQuestionsForRetrieval } from '@/lib/db'
+import { preprocessQuery, embedText } from '@/lib/embeddings'
 
-const client = new Anthropic()
+function cosineSimilarity(a, b) {
+  let dot = 0, normA = 0, normB = 0
+  for (let i = 0; i < a.length; i++) {
+    dot   += a[i] * b[i]
+    normA += a[i] * a[i]
+    normB += b[i] * b[i]
+  }
+  if (normA === 0 || normB === 0) return 0
+  return dot / (Math.sqrt(normA) * Math.sqrt(normB))
+}
 
 export async function POST(request) {
+  let body
   try {
-    const { company, role, roundType } = await request.json()
-
-    if (!company && !role) {
-      return NextResponse.json({ error: 'company or role is required' }, { status: 400 })
-    }
-
-    // Fetch relevant questions from DB as few-shot context
-    const db = await getDb()
-    let questions = []
-    try {
-      const rows = await db.execute(
-        'SELECT question_text, question_type, company FROM pm_questions WHERE company = ? LIMIT 20',
-        [company]
-      )
-      questions = rows.rows
-    } catch { /* table may not exist yet */ }
-
-    if (questions.length < 10) {
-      try {
-        const rows = await db.execute(
-          'SELECT question_text, question_type, company FROM pm_questions LIMIT 40'
-        )
-        // merge, deduplicate
-        const seen = new Set(questions.map(q => q.question_text))
-        for (const q of rows.rows) {
-          if (!seen.has(q.question_text)) {
-            questions.push(q)
-            seen.add(q.question_text)
-          }
-        }
-      } catch { /* ignore */ }
-    }
-
-    const fewShotLines = questions.length > 0
-      ? '\n\nHere are real PM interview questions from the database for context:\n' +
-        questions.slice(0, 30).map(q => `- [${q.question_type || 'UNKNOWN'}] ${q.question_text}`).join('\n')
-      : ''
-
-    const prompt = `You are an expert PM interview coach. Given a target role and round type, return a ranked list of 8–10 questions most likely to be asked.
-
-Target company: ${company || 'Not specified'}
-Target role: ${role || 'PM'}
-Round type: ${roundType || 'loop'}${fewShotLines}
-
-Return ONLY a JSON array (no markdown fences) where each element has:
-- "text": the question text
-- "type": question type (PRODUCT_SENSE, BEHAVIOURAL, ESTIMATION, METRIC, EXECUTION, STRATEGY, DESIGN, CASE_STUDY, or TECHNICAL)
-- "likelihood": a number 1–5 (5 = very likely)
-- "rationale": one sentence explaining why this is likely
-
-Sort by likelihood descending. Return 8–10 questions.`
-
-    const msg = await client.messages.create({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 1500,
-      messages: [{ role: 'user', content: prompt }],
-    })
-
-    const raw = msg.content[0]?.text || '[]'
-    let parsed
-    try {
-      // strip markdown fences if present
-      const clean = raw.replace(/^```[a-z]*\n?/i, '').replace(/```$/, '').trim()
-      parsed = JSON.parse(clean)
-    } catch {
-      parsed = []
-    }
-
-    return NextResponse.json({ questions: parsed })
-  } catch (err) {
-    console.error('predict-questions error:', err)
-    return NextResponse.json({ error: err.message || 'Failed to predict questions' }, { status: 500 })
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
+
+  const { company, roleLevel, roundType, jdText, userId } = body
+
+  if (!company || !roleLevel) {
+    return NextResponse.json({ error: 'company and roleLevel are required' }, { status: 400 })
+  }
+
+  // Fetch candidate questions with embeddings
+  let retrieval
+  try {
+    retrieval = await getQuestionsForRetrieval(company)
+  } catch (err) {
+    console.error('[predict-questions] getQuestionsForRetrieval error:', err.message)
+    return NextResponse.json({ error: 'Failed to fetch candidate questions' }, { status: 500 })
+  }
+
+  const { questions: candidates, companyMatch } = retrieval
+
+  if (candidates.length < 10) {
+    return NextResponse.json({ fallback: true })
+  }
+
+  // Embed the JD query
+  let jdVector
+  try {
+    const queryText = preprocessQuery(company, roleLevel, jdText || '')
+    jdVector = await embedText(queryText)
+  } catch (err) {
+    console.error('[predict-questions] embedText error:', err.message)
+    return NextResponse.json({ error: 'Failed to embed query' }, { status: 500 })
+  }
+
+  // Score each candidate
+  const scored = []
+  for (const row of candidates) {
+    let vec
+    try {
+      vec = JSON.parse(row.embedding)
+    } catch {
+      continue
+    }
+    const score = cosineSimilarity(jdVector, vec)
+    scored.push({
+      question:      row.question,
+      question_type: row.question_type,
+      score:         Math.round(score * 10000) / 10000,
+    })
+  }
+
+  scored.sort((a, b) => b.score - a.score)
+  const top40 = scored.slice(0, 40)
+
+  return NextResponse.json({ questions: top40, companyMatch })
 }

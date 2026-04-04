@@ -5,8 +5,14 @@ import { auth } from '@clerk/nextjs/server'
 export async function GET(request, { params }) {
   try {
     const { userId } = await auth().catch(() => ({ userId: null }))
-    const prediction = await getPredictionById(params.id, userId || null)
-    if (!prediction) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    const raw = await getPredictionById(params.id, userId || null)
+    if (!raw) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    const prediction = {
+      ...raw,
+      lowConfidence:      !!raw.low_confidence,
+      retrievedQuestions: raw.result?.retrievedQuestions || [],
+      retrievalMode:      raw.result?.retrievalMode      || 'none',
+    }
     return NextResponse.json({ prediction })
   } catch (err) {
     return NextResponse.json({ error: err.message }, { status: 500 })
@@ -38,6 +44,28 @@ export async function PATCH(request, { params }) {
     }
     if (body.questionIndex !== undefined) {
       await updateQuestionFeedback(params.id, body.questionIndex, body.typeIndex, body.wasAsked)
+
+      if (body.wasAsked === 'yes') {
+        const db = getDb()
+        const pred = await db.execute({
+          sql: 'SELECT result FROM predictions WHERE id = ?',
+          args: [params.id],
+        })
+        if (pred.rows.length > 0) {
+          let result = {}
+          try { result = JSON.parse(pred.rows[0].result) } catch {}
+          const confirmedQuestion = result.predictedQuestions?.[body.typeIndex]
+            ?.questions?.[body.questionIndex]?.question
+          if (confirmedQuestion) {
+            await db.execute({
+              sql: `UPDATE pm_questions
+                    SET confirmation_count = confirmation_count + 1
+                    WHERE LOWER(TRIM(question)) = LOWER(TRIM(?))`,
+              args: [confirmedQuestion],
+            })
+          }
+        }
+      }
     }
     return NextResponse.json({ ok: true })
   } catch (err) {
