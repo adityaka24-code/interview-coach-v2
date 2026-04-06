@@ -22,12 +22,14 @@ export async function GET(request) {
     }
     const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10))
 
-    const shouldIncludeLewisLin     = !params.source || params.source === 'lewis_lin'
-    const shouldIncludeUserQuestions = !params.source || params.source !== 'lewis_lin'
+    // Sources stored in pm_questions table (add new sources here as they're scraped)
+    const PM_SOURCES = ['lewis_lin', 'glassdoor']
+    const shouldIncludePmQuestions   = !params.source || PM_SOURCES.includes(params.source)
+    const shouldIncludeUserQuestions = !params.source || !PM_SOURCES.includes(params.source)
 
     const [userQs, pmQs] = await Promise.allSettled([
       shouldIncludeUserQuestions ? getQuestions(params)   : Promise.resolve([]),
-      shouldIncludeLewisLin      ? getPmQuestions(params) : Promise.resolve([]),
+      shouldIncludePmQuestions   ? getPmQuestions(params) : Promise.resolve([]),
     ])
 
     const userRows = userQs.status === 'fulfilled' ? userQs.value : []

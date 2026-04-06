@@ -35,7 +35,8 @@ An AI-powered preparation tool for Product Manager interviews. Analyse transcrip
 
 ### Job Insights
 - Salary trends by company, role level, and location
-- Real PM interview question bank, filterable by company and question type
+- Real PM interview question bank, filterable by company, question type, and source
+- **Sources:** Lewis Lin question bank (`lewis_lin`) + Glassdoor interview reports (`glassdoor`) — 3,392 questions total, all embedded for semantic retrieval
 
 ---
 
@@ -204,6 +205,59 @@ The raw score maps to a `withoutReferral` percentage (10–85%), then a non-line
 - Signing in enables PDF downloads and saves your history
 - The **Maybe later** option lets users view a prediction report without creating an account
 - Anonymous predictions are atomically claimed to the user's account on sign-in
+
+---
+
+## Question Bank Data Pipeline
+
+The `pm_questions` table is populated from two sources. Both are fully idempotent — safe to re-run at any time.
+
+### Source 1 — Lewis Lin (`lewis_lin`)
+
+~3,338 structured PM interview questions from Lewis Lin's question bank. Synced via `scripts/sync.py`.
+
+### Source 2 — Glassdoor (`glassdoor`)
+
+Scraped from Glassdoor interview pages for 10 target companies (Amazon, Microsoft, Google, Meta, Flipkart, Meesho, PhonePe, Paytm, Zomato, Swiggy).
+
+**Scripts** (in `/Users/adityakamath/scripts/`):
+
+| Script | Purpose |
+|---|---|
+| `scrape_glassdoor.py` | Playwright scraper — connects to a running Chrome via CDP, scrapes PM interview questions, outputs `glassdoor_raw.csv` |
+| `classify_and_sync_glassdoor.py` | Rules-based classifier + noise filter + dedup + Turso upsert |
+| `backfill_embeddings_slow.py` | Voyage AI embedding backfill for all `pm_questions` rows where `embedding IS NULL` |
+
+**To rescrape:**
+
+```bash
+# 1. Launch Chrome with remote debugging (keep your normal Chrome open separately)
+/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
+  --remote-debugging-port=9222 \
+  --user-data-dir=/tmp/chrome-debug-profile \
+  --no-first-run
+
+# 2. Log into glassdoor.co.in in that window
+
+# 3. Run scraper (attaches to Chrome via CDP — bypasses bot detection)
+python3 /Users/adityakamath/scripts/scrape_glassdoor.py
+
+# 4. Classify, deduplicate, and sync to Turso
+export TURSO_URL=<TURSO_DATABASE_URL>
+export TURSO_AUTH_TOKEN=<value>
+python3 /Users/adityakamath/scripts/classify_and_sync_glassdoor.py
+
+# 5. Backfill embeddings for new rows
+nohup python3 /Users/adityakamath/scripts/backfill_embeddings_slow.py \
+  >> /tmp/backfill_embeddings.log 2>&1 &
+```
+
+**Pipeline behaviour:**
+- `row_hash` (MD5 of company + question + job_title) prevents duplicate inserts
+- Cross-dedup against `lewis_lin` source — no question appears in both
+- Fuzzy dedup within batch (>85% token overlap) removes near-duplicate phrasings
+- Rules-based classifier assigns `question_type` with zero API cost
+- Scraper extracts actual interview dates from Glassdoor card metadata; falls back to `2024-01-01` for template questions (which are filtered out before insertion anyway)
 
 ---
 
