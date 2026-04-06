@@ -72,6 +72,30 @@ function riskBadgeStyle(risk) {
 
 const riskOrder = { high: 0, medium: 1, low: 2 }
 
+/**
+ * Splits the Claude reasoning string into:
+ *   dims — array of { label, score, max } parsed from the scores sentence
+ *   rest — the remaining sentences (strength / risk prose)
+ *
+ * Expected first-sentence format (from STEP 4 prompt):
+ *   "Total: 67/100 — Keywords: 5/8, Skills: 16/22, Seniority: 20/28, Hard reqs: 15/25, CV substance: 11/17."
+ */
+function parseDimScores(reasoning) {
+  if (!reasoning) return { dims: [], rest: reasoning || '' }
+  const dotIdx = reasoning.indexOf('. ', 20)
+  const scoreSentence = dotIdx > 0 ? reasoning.slice(0, dotIdx) : reasoning
+  const rest = dotIdx > 0 ? reasoning.slice(dotIdx + 2).trim() : ''
+  const dims = []
+  const re = /([A-Za-z][A-Za-z\s\/]+?):\s*(\d+)\/(\d+)/g
+  let m
+  while ((m = re.exec(scoreSentence)) !== null) {
+    const label = m[1].trim()
+    if (label.toLowerCase() === 'total') continue
+    dims.push({ label, score: parseInt(m[2], 10), max: parseInt(m[3], 10) })
+  }
+  return { dims, rest }
+}
+
 function SourceBadge({ source, sourceLabel, sourceUrl }) {
   const SOURCE_COLORS = {
     lewis_lin:      { bg: 'rgba(99,179,237,0.12)',  text: '#7ec8f7',  border: 'rgba(99,179,237,0.3)'  },
@@ -398,14 +422,50 @@ export default function PredictionReportPage() {
                 <div style={{ fontSize: 11, fontWeight: 600, color: '#3fb950', fontFamily: 'DM Mono', letterSpacing: '1px', textTransform: 'uppercase', marginTop: 6 }}>With referral</div>
               </div>
 
-              {/* Verdict + reasoning */}
-              <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 8 }}>
+              {/* Verdict + dimension score boxes + reasoning prose */}
+              <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 10 }}>
                 <span style={{ fontSize: 13, fontWeight: 700, color: col, fontFamily: 'DM Mono', letterSpacing: '0.5px' }}>
                   {verdict}
                 </span>
-                {cb.reasoning && (
-                  <p style={{ fontSize: 13, color: 'var(--text-muted)', lineHeight: 1.65, margin: 0 }}>{cb.reasoning}</p>
-                )}
+                {cb.reasoning && (() => {
+                  const { dims, rest } = parseDimScores(cb.reasoning)
+                  return (
+                    <>
+                      {dims.length > 0 && (
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                          {dims.map(({ label, score, max }) => {
+                            const pct = max > 0 ? Math.round((score / max) * 100) : 0
+                            const dc = pct >= 70 ? '#3fb950' : pct >= 40 ? '#d29922' : '#f85149'
+                            return (
+                              <div key={label} style={{
+                                background: 'var(--surface2)',
+                                border: '1px solid var(--border)',
+                                borderRadius: 8,
+                                padding: '6px 10px',
+                                minWidth: 56,
+                                textAlign: 'center',
+                              }}>
+                                <div style={{ fontFamily: 'DM Mono', lineHeight: 1 }}>
+                                  <span style={{ fontSize: 18, fontWeight: 700, color: dc }}>{score}</span>
+                                  <span style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 400 }}>/{max}</span>
+                                </div>
+                                <div style={{ height: 3, background: 'var(--border)', borderRadius: 2, margin: '5px 0 4px' }}>
+                                  <div style={{ width: `${pct}%`, height: '100%', background: dc, borderRadius: 2 }} />
+                                </div>
+                                <div style={{ fontSize: 9, fontFamily: 'DM Mono', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', lineHeight: 1.3 }}>
+                                  {label}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                      {rest && (
+                        <p style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.65, margin: 0 }}>{rest}</p>
+                      )}
+                    </>
+                  )
+                })()}
               </div>
             </div>
 
@@ -440,26 +500,79 @@ export default function PredictionReportPage() {
 
       {lowConfidence && (
         <div style={{
-          display: 'flex',
-          alignItems: 'flex-start',
-          gap: 10,
           background: 'rgba(251,191,36,0.06)',
           border: '1px solid rgba(251,191,36,0.25)',
           borderRadius: 10,
           padding: '10px 16px',
           marginBottom: 16,
         }}>
-          <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>⚠</span>
-          <p style={{
-            fontSize: 12,
-            fontFamily: 'DM Mono',
-            color: 'var(--text-muted)',
-            margin: 0,
-            lineHeight: 1.65,
-          }}>
-            These predictions are based on role patterns — fewer real
-            questions available for this company.
-          </p>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+            <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>⚠</span>
+            <p style={{
+              fontSize: 12,
+              fontFamily: 'DM Mono',
+              color: 'var(--text-muted)',
+              margin: 0,
+              lineHeight: 1.65,
+            }}>
+              These predictions are based on role patterns — fewer real
+              questions available for this company.
+            </p>
+          </div>
+
+          {retrievedQuestions.length > 0 && (
+            <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(251,191,36,0.15)' }}>
+              <span style={{
+                fontSize: 10,
+                fontFamily: 'DM Mono',
+                color: 'var(--text-muted)',
+                letterSpacing: '1px',
+                textTransform: 'uppercase',
+                display: 'block',
+                marginBottom: 8,
+              }}>
+                Most similar on record
+              </span>
+              {retrievedQuestions.slice(0, 3).map((q, i) => (
+                <div key={i} style={{
+                  display: 'flex',
+                  alignItems: 'baseline',
+                  gap: 10,
+                  marginBottom: i < 2 ? 6 : 0,
+                }}>
+                  <span style={{
+                    fontSize: 10,
+                    fontFamily: 'DM Mono',
+                    color: 'rgba(251,191,36,0.6)',
+                    flexShrink: 0,
+                    minWidth: 14,
+                  }}>
+                    {i + 1}.
+                  </span>
+                  <span style={{
+                    fontSize: 12,
+                    color: 'var(--text-muted)',
+                    lineHeight: 1.5,
+                    flex: 1,
+                  }}>
+                    {q.question}
+                  </span>
+                  {q.question_type && (
+                    <span style={{
+                      fontSize: 10,
+                      fontFamily: 'DM Mono',
+                      color: 'var(--text-muted)',
+                      opacity: 0.6,
+                      flexShrink: 0,
+                      whiteSpace: 'nowrap',
+                    }}>
+                      {q.question_type}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

@@ -22,8 +22,10 @@ async function withRetry(fn, maxRetries = 8, baseDelay = 400, maxDelay = 30_000)
     } catch (err) {
       lastError = err
       if (attempt === maxRetries) break
-      // Never retry auth / malformed-input errors
-      if (err?.status === 400 || err?.status === 401) throw err
+      // Never retry auth errors, non-context 400s, or cases where retrying cannot help
+      if (err?.noRetry) throw err
+      if (err?.status === 401) throw err
+      if (err?.status === 400 && !err?.message?.toLowerCase().includes('context')) throw err
       if (err?.status === 529) { // Anthropic overloaded — always retry
         // use longer base delay for overload
         const delay = Math.min(2000 * 2 ** attempt, maxDelay)
@@ -82,7 +84,6 @@ const GAPS_TOOL = {
     properties: {
       gapAnalysis: {
         type: 'array',
-        minItems: 2,
         items: {
           type: 'object',
           properties: {
@@ -178,14 +179,14 @@ ${cv}`
 async function fetchGaps({ systemBase, jd, cv }) {
   const prompt = `${systemBase}
 
-TASK: Identify gaps the interviewer will probe. Return MINIMUM 2 gaps, maximum 5.
+TASK: Identify the most important gaps the interviewer will probe.
+Return only high or medium probe-risk gaps. Maximum 3 gaps total.
 Even if the CV is a strong match, always identify areas where the candidate could be
 stronger or where the JD sets a higher bar than demonstrated.
 
 GAP ANALYSIS RULES:
 - Compare JD requirements against CV evidence line by line
-- Flag real gaps AND areas where JD expects MORE than CV demonstrates
-- For each gap: state what JD requires, what CV shows (or lacks), probe risk (high/medium/low)
+- Only include gaps with probe risk "high" or "medium" — omit low-risk gaps entirely
 - Ordered by probe risk descending (high first)
 - prepAdvice must have all three fields: cvImprovement, interviewTip, other
 
@@ -195,13 +196,25 @@ ${jd}
 CANDIDATE CV:
 ${cv}`
 
-  const msg = await anthropic.messages.create({
-    model: 'claude-sonnet-4-5',
-    max_tokens: 2000,
-    tools: [GAPS_TOOL],
-    tool_choice: { type: 'tool', name: 'submit_gaps' },
-    messages: [{ role: 'user', content: prompt }],
-  })
+  let msg
+  try {
+    msg = await anthropic.messages.create({
+      model: 'claude-sonnet-4-5',
+      max_tokens: 1600,
+      tools: [GAPS_TOOL],
+      tool_choice: { type: 'tool', name: 'submit_gaps' },
+      messages: [{ role: 'user', content: prompt }],
+    })
+  } catch (err) {
+    console.error('[predict][gaps] status:', err?.status, 'message:', err?.message)
+    throw err
+  }
+  if (msg.stop_reason === 'max_tokens') {
+    console.error('[predict][gaps] truncated at max_tokens — response incomplete')
+    const truncErr = new Error('[gaps] response truncated by max_tokens limit')
+    truncErr.noRetry = true
+    throw truncErr
+  }
   const block = msg.content.find(b => b.type === 'tool_use' && b.name === 'submit_gaps')
   if (!block?.input) throw new Error('No gap analysis returned from Claude')
   return block.input
@@ -212,38 +225,63 @@ async function fetchCallback({ systemBase, jd, cv, roleLevel, company }) {
 
 TASK: Estimate the callback probability for this candidate applying for a ${roleLevel} role at ${company || 'this company'}.
 
-STEP 1 — SCORE THE CV AGAINST THE JD ON FOUR DIMENSIONS:
+STEP 1 — SCORE THE CV AGAINST THE JD ON FIVE DIMENSIONS:
 
-A. Keyword and skills overlap (0–40 pts)
-   Count how many distinct skills, tools, and domain terms in the JD also appear in the CV.
-   0–10 pts: fewer than 25% of JD terms present in CV
-   11–25 pts: 25–50% of JD terms present
-   26–35 pts: 50–75% of JD terms present
-   36–40 pts: more than 75% of JD terms present
+A. Keyword overlap (0–8 pts)
+   Count how many distinct domain-specific buzzwords, tools, and technologies from the JD appear verbatim in the CV.
+   0–2 pts:  fewer than 25% of JD keywords present
+   3–5 pts:  25–60% of JD keywords present
+   6–8 pts:  more than 60% of JD keywords present
 
-B. Seniority match for ${roleLevel} (0–20 pts)
+B. Skills match (0–22 pts)
+   Assess how well the candidate's demonstrated functional skills align with the skills the JD requires (beyond keyword matching — look at evidence of actually doing the work).
+   0–7 pts:  fewer than a quarter of required skills evidenced in CV
+   8–14 pts: roughly half of required skills evidenced with some depth
+   15–19 pts: most required skills evidenced with concrete examples
+   20–22 pts: all or nearly all required skills evidenced with strong, relevant examples
+
+C. Seniority match for ${roleLevel} (0–28 pts)
    Does the CV demonstrate ownership, scope, and impact at the right level?
-   0–8 pts:  CV shows work well below ${roleLevel} expectations
-   9–14 pts: CV shows partial match — some signals but gaps in scope or ownership
-   15–18 pts: CV mostly matches ${roleLevel} expectations
-   19–20 pts: CV clearly exceeds or exactly matches ${roleLevel} expectations
+   0–9 pts:   CV shows work well below ${roleLevel} expectations
+   10–18 pts: CV shows partial match — some signals but gaps in scope or ownership
+   19–24 pts: CV mostly matches ${roleLevel} expectations
+   25–28 pts: CV clearly exceeds or exactly matches ${roleLevel} expectations
 
-C. Hard requirement coverage (0–30 pts)
+D. Hard requirement coverage (0–25 pts)
    Find every sentence in the JD containing "required", "must have", "essential", "minimum", or "mandatory".
    For each hard requirement found: does the CV provide clear evidence of meeting it?
-   Score = (hard requirements met / total hard requirements found) × 30
-   If no hard requirements are stated in the JD, award full 30 pts.
+   Score = (hard requirements met / total hard requirements found) × 25
+   If no hard requirements are stated in the JD, award full 25 pts.
 
-D. CV substance and specificity (0–10 pts)
-   0–3 pts:  CV is vague, thin, or lacks metrics and outcomes
-   4–6 pts:  CV has some specific achievements but is inconsistent
-   7–8 pts:  CV is specific with quantified outcomes in most roles
-   9–10 pts: CV is consistently specific, metric-driven, and compelling
+E. CV substance and specificity (0–17 pts)
+   0–4 pts:   CV is vague, thin, or lacks metrics and outcomes
+   5–9 pts:   CV has some specific achievements but is inconsistent
+   10–13 pts: CV is specific with quantified outcomes in most roles
+   14–17 pts: CV is consistently specific, metric-driven, and compelling
 
 STEP 2 — COMPUTE THE SCORE:
-total = A + B + C + D  (out of 100)
+total = A + B + C + D + E  (out of 100)
 withoutReferral = round(10 + (total / 100) × 75), clamped between 1 and 85
-withReferral = withoutReferral + round((1 - withoutReferral/100) × 28), clamped at 95 maximum
+
+withReferral: use the lookup table below. Find the two rows that bracket withoutReferral
+and interpolate linearly to get the boost, then add it to withoutReferral.
+
+  base% |  boost%
+  ------|---------
+    0   |    0
+   10   |    5
+   25   |   10
+   35   |   18
+   50   |   25
+   60   |   23
+   70   |   18
+
+For base ≥ 75: withReferral = 90 (hard cap — boost shrinks so total never exceeds 90).
+For base 70–74: interpolate boost linearly from 18 down to 15 (i.e. boost = 18 − 0.6 × (base − 70)), then add to base, capped at 90.
+
+Example: base = 50 → boost = 25 → withReferral = 75.
+Example: base = 40 → interpolate between (35,18) and (50,25): boost = 18 + (7/15)×(40−35) = 20 → withReferral = 60.
+Example: base = 65 → interpolate between (60,23) and (70,18): boost = 23 − 0.5×(65−60) = 21 → withReferral = 86, capped at 90.
 
 STEP 3 — ASSIGN VERDICT:
 "strong fit"  if withoutReferral ≥ 65
@@ -251,7 +289,7 @@ STEP 3 — ASSIGN VERDICT:
 "longshot"    if withoutReferral < 40
 
 STEP 4 — WRITE REASONING:
-One sentence stating total score and each dimension score (e.g. "Total: 67/100 — Skills: 28/40, Seniority: 16/20, Hard reqs: 18/30, CV substance: 5/10."). Then one sentence on the single biggest strength and one on the single biggest risk.
+One sentence stating total score and each dimension score (e.g. "Total: 67/100 — Keywords: 5/8, Skills: 16/22, Seniority: 20/28, Hard reqs: 15/25, CV substance: 11/17."). Then one sentence on the single biggest strength and one on the single biggest risk.
 
 STEP 5 — IDENTIFY SIGNALS:
 strengths: 2–3 specific things from the CV that directly match the JD
@@ -334,7 +372,6 @@ export async function POST(request) {
   const lowConfidence = (
     queryVector === null ||
     top25.length < 8 ||
-    topScore < 0.65 ||
     companyMatch === false
   )
 
