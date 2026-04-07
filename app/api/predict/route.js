@@ -343,27 +343,36 @@ export async function POST(request) {
     console.error('[predict] embedText error:', e.message)
   }
 
-  let top25 = []
+  let top10 = []
   let topScore = 0
   let companyMatch = false
   try {
     const { questions: candidates, companyMatch: cm } = await getQuestionsForRetrieval(company)
     companyMatch = cm
 
-    if (queryVector !== null && candidates.length > 0) {
-      const scored = candidates.flatMap(c => {
-        let vec
-        try { vec = JSON.parse(c.embedding) } catch { return [] }
-        const ageInDays = (Date.now() - new Date(c.timestamp).getTime()) / 86400000
-        const decay = Math.exp(-0.001 * ageInDays)
-        const confirmations = c.confirmation_count ?? 0
-        const confirmationBoost = 1 + (0.05 * Math.min(confirmations, 10))
-        return [{ ...c, _score: cosineSimilarity(queryVector, vec) * decay * confirmationBoost }]
-      })
-      scored.sort((a, b) => b._score - a._score)
-      top25 = scored.slice(0, 25)
-      topScore = top25[0]?._score ?? 0
-
+    if (candidates.length > 0) {
+      if (queryVector !== null) {
+        const scored = candidates.flatMap(c => {
+          let vec
+          try { vec = JSON.parse(c.embedding) } catch { return [] }
+          const ageInDays = (Date.now() - new Date(c.timestamp).getTime()) / 86400000
+          const decay = Math.exp(-0.001 * ageInDays)
+          const confirmations = c.confirmation_count ?? 0
+          const confirmationBoost = 1 + (0.05 * Math.min(confirmations, 10))
+          return [{ ...c, _score: cosineSimilarity(queryVector, vec) * decay * confirmationBoost }]
+        })
+        scored.sort((a, b) => b._score - a._score)
+        top10 = scored.slice(0, 10)
+        topScore = top10[0]?._score ?? 0
+      } else {
+        // Embedding failed — fall back to ranking by confirmation count + recency
+        const sorted = [...candidates].sort((a, b) => {
+          const confDiff = (b.confirmation_count ?? 0) - (a.confirmation_count ?? 0)
+          if (confDiff !== 0) return confDiff
+          return new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+        })
+        top10 = sorted.slice(0, 10).map(c => ({ ...c, _score: 0 }))
+      }
     }
   } catch (e) {
     console.error('[predict] retrieval error:', e.message)
@@ -371,7 +380,7 @@ export async function POST(request) {
 
   const lowConfidence = (
     queryVector === null ||
-    top25.length < 8 ||
+    top10.length < 5 ||
     companyMatch === false
   )
 
@@ -379,7 +388,7 @@ export async function POST(request) {
   if (!lowConfidence) {
     retrievalContext =
       `Here are real questions asked at ${company} interviews:\n` +
-      top25.map((q, i) => `${i + 1}. [${q.question_type}] ${q.question}`).join('\n')
+      top10.map((q, i) => `${i + 1}. [${q.question_type}] ${q.question}`).join('\n')
   }
 
   const systemBase = `You are a world-class PM interview coach. Given a job description and candidate CV, your job is to help the candidate prepare.`
@@ -457,7 +466,7 @@ export async function POST(request) {
           callbackProbability: callbackResult?.callbackProbability || null,
           signals:             callbackResult?.signals             || null,
         }
-        const retrievedQuestions = top25.map((q, i) => ({
+        const retrievedQuestions = top10.map((q, i) => ({
           rank:          i + 1,
           question:      q.question,
           question_type: q.question_type,
@@ -468,11 +477,9 @@ export async function POST(request) {
           score:         parseFloat(q._score.toFixed(4)),
         }))
         const retrievalMode =
-          queryVector === null   ? 'none'
-          : !companyMatch        ? 'role_fallback'
-          : top25.length < 8     ? 'none'
-          : topScore < 0.65      ? 'none'
-          :                        'company_match'
+          top10.length === 0 ? 'none'
+          : !companyMatch    ? 'role_fallback'
+          :                    'company_match'
         const id = await savePrediction({
           company, roleLevel, roundType, jdText, cvText,
           result, userId,
@@ -491,7 +498,7 @@ export async function POST(request) {
         if (retrievalContext) {
           ;(async () => {
             try {
-              for (const q of top25) {
+              for (const q of top10) {
                 await savePredictionFeedback({
                   predictionId: id,
                   questionText: q.question,

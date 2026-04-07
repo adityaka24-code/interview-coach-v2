@@ -533,7 +533,7 @@ export default function PredictionReportPage() {
               }}>
                 Most similar on record
               </span>
-              {retrievedQuestions.slice(0, 3).map((q, i) => (
+              {retrievedQuestions.slice(0, 5).map((q, i) => (
                 <div key={i} style={{
                   display: 'flex',
                   alignItems: 'baseline',
