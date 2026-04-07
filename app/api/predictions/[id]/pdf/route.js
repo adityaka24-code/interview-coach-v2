@@ -90,7 +90,8 @@ function wasAskedColor(v) {
 
 export async function GET(request, { params }) {
   try {
-    const prediction = await getPredictionById(params.id)
+    const { id } = await params
+    const prediction = await getPredictionById(id)
     if (!prediction) {
       return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
@@ -351,7 +352,7 @@ export async function GET(request, { params }) {
     return new Response(buffer, {
       headers: {
         'Content-Type': 'application/pdf',
-        'Content-Disposition': `attachment; filename="prediction-report-${params.id.slice(0, 8)}.pdf"`,
+        'Content-Disposition': `attachment; filename="prediction-report-${id.slice(0, 8)}.pdf"`,
       },
     })
   } catch (err) {

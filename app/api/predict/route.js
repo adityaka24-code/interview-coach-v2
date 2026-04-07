@@ -480,6 +480,17 @@ export async function POST(request) {
           top10.length === 0 ? 'none'
           : !companyMatch    ? 'role_fallback'
           :                    'company_match'
+
+        console.log('[predict] About to save prediction with:', {
+          company,
+          roleLevel,
+          roundType,
+          userId: userId ? 'set' : 'null',
+          jdTextLength: jdText.length,
+          cvTextLength: cvText.length,
+          resultFields: Object.keys(result),
+        })
+
         const id = await savePrediction({
           company, roleLevel, roundType, jdText, cvText,
           result, userId,
@@ -487,6 +498,9 @@ export async function POST(request) {
           retrievedQuestions,
           retrievalMode,
         })
+
+        console.log('[predict] Prediction saved successfully with ID:', id)
+
         send('complete', {
           id,
           lowConfidence,
@@ -512,8 +526,11 @@ export async function POST(request) {
           })()
         }
       } catch (err) {
-        console.error('[predict] DB save error:', err)
-        send('fatal', { message: 'Report generated but failed to save. Please try again.' })
+        console.error('[predict] DB save error:', err.message || err, err.stack)
+        send('fatal', {
+          message: `Report generated but failed to save: ${err.message || 'Unknown error'}. Please check server logs.`,
+          error: err.message || err.toString()
+        })
       }
 
       controller.close()

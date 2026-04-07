@@ -126,8 +126,9 @@ ${cv}`
 
 export async function POST(request, { params }) {
   try {
+    const { id } = await params
     const { userId } = await auth().catch(() => ({ userId: null }))
-    const prediction = await getPredictionById(params.id, userId)
+    const prediction = await getPredictionById(id, userId)
     if (!prediction) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     const jd = (prediction.jd_text || '').slice(0, 4000)
@@ -154,7 +155,7 @@ export async function POST(request, { params }) {
     const db = getDb()
     await db.execute({
       sql:  'UPDATE predictions SET result=? WHERE id=?',
-      args: [JSON.stringify(updatedResult), params.id],
+      args: [JSON.stringify(updatedResult), id],
     })
 
     return NextResponse.json({

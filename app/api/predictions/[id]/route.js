@@ -4,8 +4,9 @@ import { auth } from '@clerk/nextjs/server'
 
 export async function GET(request, { params }) {
   try {
+    const { id } = await params
     const { userId } = await auth().catch(() => ({ userId: null }))
-    const raw = await getPredictionById(params.id, userId || null)
+    const raw = await getPredictionById(id, userId || null)
     if (!raw) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     const prediction = {
       ...raw,
@@ -21,6 +22,7 @@ export async function GET(request, { params }) {
 
 export async function PATCH(request, { params }) {
   try {
+    const { id } = await params
     const { userId } = await auth()
     if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     const body = await request.json()
@@ -31,25 +33,25 @@ export async function PATCH(request, { params }) {
       const db = getDb()
       await db.execute({
         sql:  'UPDATE predictions SET user_id=? WHERE id=? AND user_id IS NULL',
-        args: [userId, params.id],
+        args: [userId, id],
       })
       return NextResponse.json({ ok: true })
     }
 
     // All other mutations require verified ownership
-    const existing = await getPredictionById(params.id, userId)
+    const existing = await getPredictionById(id, userId)
     if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     if (body.outcome !== undefined) {
-      await updatePredictionOutcome(params.id, body.outcome)
+      await updatePredictionOutcome(id, body.outcome)
     }
     if (body.questionIndex !== undefined) {
-      await updateQuestionFeedback(params.id, body.questionIndex, body.typeIndex, body.wasAsked)
+      await updateQuestionFeedback(id, body.questionIndex, body.typeIndex, body.wasAsked)
 
       if (body.wasAsked === 'yes') {
         const db = getDb()
         const pred = await db.execute({
           sql: 'SELECT result FROM predictions WHERE id = ?',
-          args: [params.id],
+          args: [id],
         })
         if (pred.rows.length > 0) {
           let result = {}

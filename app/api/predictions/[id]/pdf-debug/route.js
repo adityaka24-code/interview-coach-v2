@@ -5,12 +5,13 @@ export async function GET(request, { params }) {
   const log = []
 
   try {
+    const { id } = await params
     log.push('1. Starting debug')
 
     // Step 1: DB fetch
     let prediction
     try {
-      prediction = await getPredictionById(params.id)
+      prediction = await getPredictionById(id)
       log.push(`2. DB fetch OK — prediction ${prediction ? 'found' : 'NOT FOUND'}`)
     } catch (e) {
       log.push(`2. DB fetch FAILED: ${e.message}`)
