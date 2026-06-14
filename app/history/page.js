@@ -108,8 +108,8 @@ export default function HistoryPage() {
   }, [])
 
   const tabs = [
-    { key: 'interviews', label: '🎙 Interviews', icon: null },
     { key: 'predictions', label: '🔮 Predictions', icon: null },
+    { key: 'interviews', label: '🎙 Interviews', icon: null },
   ]
 
   return (
