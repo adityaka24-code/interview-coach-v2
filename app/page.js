@@ -1618,6 +1618,29 @@ function PredictPanel() {
           >
             {busy ? 'Preparing JD…' : needsReview ? 'Confirm JD above first ↑' : '✦ Predict my questions + callback probability →'}
           </button>
+
+          {/* What you get — fills remaining whitespace */}
+          <div style={{ flex: 1, marginTop: 16, display: 'flex', flexDirection: 'column', gap: 7 }}>
+            {[
+              { icon: '❓', color: '#7ec8f7', title: 'Predicted questions',        desc: 'Know which PM question types you\'re most likely to face — grounded in real questions asked at this company.' },
+              { icon: '🔍', color: '#fc8181', title: 'CV vs JD gap analysis',      desc: 'See exactly where you\'re under-qualified and how to address each gap in the interview room.' },
+              { icon: '📊', color: '#68d391', title: 'Callback probability score', desc: 'An honest estimate of your chances with and without a referral, scored across 5 dimensions.' },
+              { icon: '🎯', color: '#fbc26a', title: 'Targeted prep advice',       desc: 'Interview tips and CV improvement suggestions tailored to your specific gaps for this role.' },
+              { icon: '✦',  color: '#a78bfa', title: 'Based on real interviews',   desc: 'Predictions are anchored in questions confirmed asked at hundreds of PM interviews.' },
+            ].map(({ icon, color, title, desc }) => (
+              <div key={title} style={{ display: 'flex', gap: 10, alignItems: 'flex-start', padding: '8px 11px', background: 'var(--surface2)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                <div style={{ width: 28, height: 28, borderRadius: 7, flexShrink: 0, background: `${color}18`, border: `1px solid ${color}30`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>{icon}</div>
+                <div>
+                  <p style={{ fontSize: 12, color: 'var(--text)', fontFamily: 'Montserrat', fontWeight: 700, margin: '0 0 2px' }}>{title}</p>
+                  <p style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'Open Sans, sans-serif', lineHeight: 1.5, margin: 0 }}>{desc}</p>
+                </div>
+              </div>
+            ))}
+            <div style={{ marginTop: 2, padding: '7px 11px', background: 'rgba(104,211,145,0.06)', border: '1px solid rgba(104,211,145,0.18)', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
+              <span style={{ fontSize: 16 }}>🔒</span>
+              <p style={{ fontSize: 11, color: '#7ee8a2', fontFamily: 'Open Sans, sans-serif', margin: 0, lineHeight: 1.5 }}><strong>Your data stays yours.</strong> JD and CV are never stored or shared.</p>
+            </div>
+          </div>
         </div>
       </div>
 
