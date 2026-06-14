@@ -11,6 +11,7 @@ const links = [
   { href:'/history', label:'Activity' },
   { href:'/questions', label:'Questions' },
   { href:'/salaries', label:'Job Insights' },
+  { href:'/open-jobs', label:'Open Jobs' },
   { href:'/profile', label:'Profile' },
 ]
 
