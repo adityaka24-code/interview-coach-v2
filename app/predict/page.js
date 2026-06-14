@@ -94,13 +94,24 @@ export default function PredictPage() {
   async function handleFetchUrl() {
     setJdMode('url-loading')
     try {
-      const res  = await fetch('/api/fetch-url', {
+      const fetchRes  = await fetch('/api/fetch-url', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: jdPendingUrl }),
       })
-      const data = await res.json()
-      if (data.error) throw new Error(data.error)
-      setJdReviewText(data.text.slice(0, 3500))
+      const fetchData = await fetchRes.json()
+      if (fetchData.error) throw new Error(fetchData.error)
+
+      // Extract only job-relevant content from the raw page text
+      const extractRes  = await fetch('/api/extract-jd', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rawText: fetchData.text }),
+      })
+      const extractData = await extractRes.json()
+      const jd = extractData.extracted !== false && extractData.jdText
+        ? extractData.jdText
+        : fetchData.text.slice(0, 3500)   // fallback to raw if extraction failed
+
+      setJdReviewText(jd)
       setJdReviewSource('url')
       setJdMode('review')
     } catch {

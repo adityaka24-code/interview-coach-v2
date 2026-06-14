@@ -27,6 +27,7 @@ const isPublicRoute = createRouteMatcher([
   '/api/open-jobs(.*)',
   '/open-jobs(.*)',
   '/api/infer-jd(.*)',
+  '/api/extract-jd(.*)',
 ])
 
 export default clerkMiddleware(async (auth, req) => {
