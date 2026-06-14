@@ -393,21 +393,9 @@ export default function PredictPage() {
 
           <div style={{ marginBottom: 8 }}>
             <FileDropZone
-              onFile={async (file) => {
-                const formData = new FormData()
-                formData.append('file', file)
-                const res  = await fetch('/api/parse-file', { method: 'POST', body: formData })
-                const data = await res.json()
-                if (data.text) { setCvText(data.text); setCvFileName(file.name) }
-              }}
-              accept=".pdf,.doc,.docx"
+              onText={text => setCvText(text)}
               label="Upload CV (PDF / DOCX)"
             />
-            {cvFileName && (
-              <div style={{ fontSize: 12, color: 'var(--success)', marginTop: 6, fontFamily: 'DM Mono' }}>
-                ✓ Extracted from {cvFileName}
-              </div>
-            )}
           </div>
 
           <textarea

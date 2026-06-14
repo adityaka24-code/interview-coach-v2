@@ -1566,16 +1566,9 @@ function PredictPanel() {
             </div>
             <div style={{ marginBottom: 6 }}>
               <FileDropZone
-                onFile={async (file) => {
-                  const fd = new FormData(); fd.append('file', file)
-                  const res = await fetch('/api/parse-file', { method: 'POST', body: fd })
-                  const d = await res.json()
-                  if (d.text) { setCvText(d.text); setCvFileName(file.name) }
-                }}
-                accept=".pdf,.doc,.docx"
+                onText={text => setCvText(text)}
                 label="Upload CV (PDF / DOCX)"
               />
-              {cvFileName && <div style={{ fontSize: 11, color: 'var(--success)', marginTop: 4, fontFamily: 'DM Mono' }}>✓ {cvFileName}</div>}
             </div>
             <textarea value={cvText} onChange={e => setCvText(e.target.value)}
               placeholder="Or paste your CV text here (max 1,000 words)"
