@@ -623,7 +623,7 @@ function ClassifyingLoader() {
 }
 
 // ── Transcript Review Component ───────────────────────────────────────────────
-function TranscriptReview({ segments, setSegments, classifying, classifyError, onContinue, onBack }) {
+function TranscriptReview({ segments, setSegments, classifying, classifyError, inputType, onContinue, onBack }) {
   const [editingId, setEditingId] = useState(null)
   const [editText,  setEditText]  = useState('')
   // tooltip: { segId, charOffset, x, y } — fixed viewport coords
@@ -795,6 +795,19 @@ function TranscriptReview({ segments, setSegments, classifying, classifyError, o
             Click any answer to edit it or insert a question mid-answer
           </p>
         </div>
+
+        {/* Summary mode banner */}
+        {inputType === 'description' && (
+          <div style={{ display:'flex', alignItems:'center', gap:10, padding:'10px 14px',
+            background:'rgba(251,194,106,0.07)', border:'1px solid rgba(251,194,106,0.25)',
+            borderRadius:9, marginBottom:16, fontFamily:'DM Mono', fontSize:12 }}>
+            <span style={{ fontSize:16 }}>🗒</span>
+            <div>
+              <span style={{ color:'#fbc26a', fontWeight:700, marginRight:6 }}>Description mode</span>
+              <span style={{ color:'var(--text-muted)' }}>Q&amp;A pairs were reconstructed from your summary — answers are prefixed [Summary]. Edit freely before continuing.</span>
+            </div>
+          </div>
+        )}
 
         {/* Legend */}
         <div style={{ display:'flex', gap:14, marginBottom:20, flexWrap:'wrap' }}>
@@ -1477,6 +1490,37 @@ function AuthGate({ onClose }) {
   )
 }
 
+
+// ── Input type detection ──────────────────────────────────────────────────────
+// Fast heuristic — no API call. Returns 'transcript' | 'description'.
+function detectInputType(text) {
+  const t = text.trim()
+  const lower = t.toLowerCase()
+  // Strong transcript signals
+  const hasTurnMarkers = /(interviewer|candidate|recruiter)\s*:/i.test(t) || /^\s*(q|me|i)\s*:/im.test(t)
+  if (hasTurnMarkers) return 'transcript'
+  // Dialogue pattern: short alternating lines (≥4 lines, avg < 120 chars)
+  const lines = t.split('\n').filter(l => l.trim().length > 0)
+  if (lines.length >= 4) {
+    const avg = t.length / lines.length
+    if (avg < 120) return 'transcript'
+  }
+  // Description signals: past tense narration of what happened
+  const descPatterns = [
+    /(they asked me|was asked|asked about|i was asked)/i,
+    /(i talked about|i mentioned|i explained|i discussed|i said)/i,
+    /(the interviewer|the recruiter|he asked|she asked)/i,
+    /(interview went|round was|session was|call was)/i,
+  ]
+  if (descPatterns.some(p => p.test(lower))) return 'description'
+  // Long dense text with no line breaks → probably a transcript blob
+  const wordCount = t.split(/\s+/).length
+  if (wordCount > 300 && lines.length < 6) return 'transcript'
+  // Short input with no dialogue markers → treat as description
+  if (wordCount < 150) return 'description'
+  return 'transcript'
+}
+
 export default function Home() {
   const [stage, setStage] = useState('record')
   const [homeMode, setHomeMode] = useState('predict')
@@ -1542,6 +1586,9 @@ export default function Home() {
   const [segments, setSegments] = useState([])
   const [classifying, setClassifying] = useState(false)
   const [classifyError, setClassifyError] = useState('')
+  const [inputType, setInputType] = useState('transcript')   // 'transcript' | 'description'
+  const [detectedType, setDetectedType] = useState('transcript')
+  const [pendingBlob, setPendingBlob] = useState(null)
   const [reportReady, setReportReady] = useState(false)
   const [reportComplete, setReportComplete] = useState(false)
   const [showCompletionToast, setShowCompletionToast] = useState(false)
@@ -1644,51 +1691,57 @@ export default function Home() {
     setInputMode('paste')
   }
 
-  const goTranscript = async (blob=null) => {
-    if (blob)     setError('')
-
-    // For audio: transcribe first, then classify
-    if (blob) {
-      setClassifying(true)
-      setStage('transcript')
-      setClassifyError('')
-      try {
+  // Called after the user confirms their input type.
+  // blob is non-null only for audio recordings.
+  const runClassify = async (blob, confirmedType) => {
+    setClassifying(true)
+    setStage('transcript')
+    setClassifyError('')
+    try {
+      let textToClassify = pasted
+      if (blob) {
         const fd = new FormData(); fd.append('audio', blob, 'recording.webm')
         const r = await fetch('/api/transcribe', { method:'POST', body:fd })
         const d = await r.json()
         if (d.error) throw new Error(d.error)
-        const rawText = d.transcript
-        setPasted(rawText)
-        const cr = await fetch('/api/classify-transcript', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ transcript: rawText }) })
-        const cd = await cr.json()
-        if (cd.error) throw new Error(cd.error)
-        setSegments(cd.segments)
-      } catch(e) {
-        setClassifyError(e.message)
-      } finally {
-        setClassifying(false)
+        textToClassify = d.transcript
+        setPasted(textToClassify)
       }
-    } else {
-      // For paste: classify immediately then show
-      setClassifying(true)
-      setStage('transcript')
-      setClassifyError('')
-      try {
-        const cr = await fetch('/api/classify-transcript', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ transcript: pasted }) })
-        const cd = await cr.json()
-        if (cd.error) throw new Error(cd.error)
-        setSegments(cd.segments)
-      } catch(e) {
-        setClassifyError(e.message)
-      } finally {
-        setClassifying(false)
-      }
+      const cr = await fetch('/api/classify-transcript', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transcript: textToClassify, inputType: confirmedType }),
+      })
+      const cd = await cr.json()
+      if (cd.error) throw new Error(cd.error)
+      setSegments(cd.segments)
+    } catch(e) {
+      setClassifyError(e.message)
+    } finally {
+      setClassifying(false)
     }
+  }
+
+  // Entry point: detect type and show confirmation card before classifying.
+  const goTranscript = (blob=null) => {
+    setError('')
+    const textToDetect = blob ? '' : pasted   // audio: can't detect before transcribe; default transcript
+    const detected = blob ? 'transcript' : detectInputType(textToDetect)
+    setDetectedType(detected)
+    setInputType(detected)
+    setPendingBlob(blob)
+    setStage('confirm-type')
   }
 
   // kept for back-compat
   const goDetails = (blob=null) => {
     goTranscript(blob)
+  }
+
+  const confirmInputType = (confirmedType) => {
+    setInputType(confirmedType)
+    runClassify(pendingBlob, confirmedType)
+    setPendingBlob(null)
   }
 
   const fetchJobUrl = async () => {
@@ -1736,6 +1789,7 @@ export default function Home() {
         transcript: finalTranscript,
         segments: segments.length > 0 ? segments : undefined,
         metadata,
+        isSummary: inputType === 'description',
       })})
       const d = await r.json()
       if (d.error) throw new Error(d.error)
@@ -1782,7 +1836,7 @@ export default function Home() {
     clearTimeout(countdownTimerRef.current)
     setStage('record'); setAnalysis(null); setAudioBlob(null)
     setRecTime(0); setPasted(''); setInputMode('paste'); setInterviewId(null); setError('')
-    setRecState('idle'); setSegments([]); setClassifyError('')
+    setRecState('idle'); setSegments([]); setClassifyError(''); setInputType('transcript'); setDetectedType('transcript'); setPendingBlob(null)
     setReportReady(false); setReportComplete(false); setShowCompletionToast(false); setFailedQuestions([])
     setTooltip(null); setAddingAfter(null); setNewQText('')
     setMeta({company:'',role:'',location:'',experienceYears:'2-5',roundType:'',salaryMin:'',salaryMax:'',salaryCurrency:'USD',jobDescription:'',jobUrl:'',cvText:'',portfolioText:''})
@@ -2084,7 +2138,7 @@ function computeCallbackProb(analysis, metadata) {
                       outline: inputMode==='paste' ? '1px solid rgba(126,200,247,0.3)' : 'none',
                       opacity: recState!=='idle'&&'paste'!==inputMode ? 0.4 : 1,
                     }}>
-                    <span style={{fontSize:16}}>📝</span> Paste transcript
+                    <span style={{fontSize:16}}>📝</span> Paste transcript / notes
                   </button>
                   <button
                     style={{
@@ -2131,14 +2185,14 @@ function computeCallbackProb(analysis, metadata) {
                   <>
                     <div style={{background:'var(--surface)',overflow:'hidden'}}>
                       <div style={{padding:'10px 14px',borderBottom:'1px solid rgba(99,179,237,0.2)',fontSize:12,fontWeight:700,color:'var(--accent)',letterSpacing:'1.5px',textTransform:'uppercase',display:'flex',justifyContent:'space-between',alignItems:'center',fontFamily:'DM Mono',background:'rgba(99,179,237,0.05)'}}>
-                        <span>Transcript</span>
+                        <span>Transcript or description</span>
                         {(()=>{const wc=pasted.trim().split(/\s+/).filter(Boolean).length;return(
                         <span style={{color:wc>25000?'var(--danger)':wc>100?'var(--accent2)':'var(--text-muted)',fontVariantNumeric:'tabular-nums'}}>
                           {wc.toLocaleString()} / 25,000 words
                         </span>)})()}
                       </div>
-                      <textarea value={pasted} onChange={e=>setPasted(e.target.value)} aria-label="Interview transcript"
-                        placeholder={"Interviewer: Tell me about a product you launched.\n\nMe: At Razorpay I led the launch of payment links...\n\nInterviewer: How do you prioritise your roadmap?\n\nMe: I use a combination of impact vs effort..."}
+                      <textarea value={pasted} onChange={e=>setPasted(e.target.value)} aria-label="Interview transcript or description"
+                        placeholder={"Verbatim transcript:\nInterviewer: Tell me about a product you launched.\nMe: At Razorpay I led the launch of payment links...\n\n— or a high-level description —\n\nThey asked me about a product launch. I talked about leading payment links at Razorpay, covering the go-to-market strategy and metrics. Then they asked about roadmap prioritisation and I explained my framework..."}
                         style={{...S.input,height:260,resize:'vertical',border:'none',borderRadius:0,lineHeight:1.75,padding:16,fontFamily:'Open Sans, sans-serif',fontSize:'var(--font-size-base)',background:'rgba(99,179,237,0.03)'}}/>
                     </div>
                     {(()=>{const wc=pasted.trim().split(/\s+/).filter(Boolean).length;const tooLong=wc>25000;const tooShort=pasted.trim().length<50;return(
@@ -2306,6 +2360,95 @@ function computeCallbackProb(analysis, metadata) {
 
         {stage==='record'&&<Ticker/>}
 
+
+        {/* ── CONFIRM INPUT TYPE STAGE ─────────────────────────────────────── */}
+        {stage==='confirm-type'&&(
+          <div style={{animation:'fadeUp 0.35s ease',maxWidth:540,margin:'0 auto',paddingTop:40}}>
+            <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:16,overflow:'hidden'}}>
+              {/* Header */}
+              <div style={{padding:'20px 24px',borderBottom:'1px solid var(--border)',background:'rgba(99,179,237,0.04)'}}>
+                <p style={{fontSize:11,color:'var(--accent)',letterSpacing:'2px',textTransform:'uppercase',fontFamily:'DM Mono',marginBottom:4}}>Before we classify</p>
+                <h2 style={{fontFamily:'Montserrat',fontSize:20,fontWeight:700,color:'var(--text)',margin:0}}>What did you paste?</h2>
+              </div>
+
+              {/* Detected pill */}
+              <div style={{padding:'20px 24px',borderBottom:'1px solid var(--border)'}}>
+                <p style={{fontSize:13,color:'var(--text-muted)',fontFamily:'DM Mono',marginBottom:14}}>We detected this as:</p>
+                <div style={{display:'flex',gap:10}}>
+                  {[
+                    {
+                      value:'transcript',
+                      label:'Verbatim transcript',
+                      desc:'Full back-and-forth dialogue — Q&A pairs extracted as-is and scored on exact wording.',
+                      icon:'📝',
+                    },
+                    {
+                      value:'description',
+                      label:'High-level description',
+                      desc:'A summary of what was discussed — Q&A reconstructed from your notes, scoring adjusted for brevity.',
+                      icon:'🗒',
+                    },
+                  ].map(opt => {
+                    const isSelected = inputType === opt.value
+                    return (
+                      <button
+                        key={opt.value}
+                        onClick={() => setInputType(opt.value)}
+                        style={{
+                          flex:1, padding:'14px 16px', borderRadius:12, cursor:'pointer', textAlign:'left',
+                          border:`2px solid ${isSelected ? 'var(--accent)' : 'var(--border)'}`,
+                          background: isSelected ? 'rgba(99,179,237,0.08)' : 'var(--surface2)',
+                          transition:'all 0.15s',
+                        }}
+                        aria-pressed={isSelected}
+                      >
+                        <div style={{fontSize:22,marginBottom:8}}>{opt.icon}</div>
+                        <div style={{fontFamily:'DM Mono',fontSize:13,fontWeight:700,color: isSelected ? 'var(--accent)' : 'var(--text)',marginBottom:6}}>
+                          {opt.label}
+                          {detectedType === opt.value && (
+                            <span style={{marginLeft:8,fontSize:10,padding:'1px 6px',borderRadius:6,
+                              background:'rgba(104,211,145,0.12)',border:'1px solid rgba(104,211,145,0.3)',
+                              color:'#68d391',fontWeight:400,verticalAlign:'middle'}}>detected</span>
+                          )}
+                        </div>
+                        <div style={{fontSize:12,color:'var(--text-muted)',fontFamily:'Open Sans, sans-serif',lineHeight:1.5}}>
+                          {opt.desc}
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div style={{padding:'16px 24px',display:'flex',gap:10,alignItems:'center'}}>
+                <button
+                  onClick={() => confirmInputType(inputType)}
+                  style={{
+                    flex:1, padding:'13px', borderRadius:10, border:'none',
+                    background:'linear-gradient(135deg,#1d4ed8,#2563eb)',
+                    color:'#fff', fontFamily:'Montserrat', fontSize:14, fontWeight:700,
+                    cursor:'pointer', boxShadow:'0 0 18px rgba(37,99,235,0.35)',
+                    transition:'all 0.2s',
+                  }}
+                >
+                  Continue as {inputType === 'description' ? 'description' : 'transcript'} →
+                </button>
+                <button
+                  onClick={() => setStage('record')}
+                  style={{
+                    padding:'13px 18px', borderRadius:10,
+                    border:'1px solid var(--border)', background:'transparent',
+                    color:'var(--text-muted)', fontFamily:'DM Mono', fontSize:13, cursor:'pointer',
+                  }}
+                >
+                  ← Back
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── TRANSCRIPT REVIEW STAGE ──────────────────────────────────────── */}
         {stage==='transcript'&&(
           <TranscriptReview
@@ -2313,8 +2456,9 @@ function computeCallbackProb(analysis, metadata) {
             setSegments={setSegments}
             classifying={classifying}
             classifyError={classifyError}
+            inputType={inputType}
             onContinue={()=>setStage('details')}
-            onBack={()=>{setStage('record');setSegments([]);setClassifyError('')}}
+            onBack={()=>{setStage('confirm-type');setSegments([]);setClassifyError('')}}
           />
         )}
 

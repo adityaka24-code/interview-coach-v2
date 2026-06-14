@@ -51,15 +51,24 @@ function chunkTranscript(text) {
   return chunks.filter(c => c.length > 0)
 }
 
-async function classifyChunk(anthropic, chunk) {
-  const message = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 8192,
-    tools: [TOOL],
-    tool_choice: { type: 'tool', name: 'submit_segments' },
-    messages: [{
-      role: 'user',
-      content: `Parse this PM interview transcript into segments. IMPORTANT: Process the COMPLETE transcript - do not stop early.
+async function classifyChunk(anthropic, chunk, inputType) {
+  const isDescription = inputType === 'description'
+  const prompt = isDescription
+    ? `The candidate wrote a HIGH-LEVEL DESCRIPTION of their PM interview — not a verbatim transcript. It may be in past tense ("they asked me about...", "I talked about...", "we discussed...") or casual notes.
+
+Your job: reconstruct plausible Q&A segments from this description.
+
+Rules:
+- type="question": reconstruct a realistic PM interview question that was likely asked, even if the description only says "they asked me about X" — write a clean, natural question (10–80 words)
+- type="inferred_question": use this when the description implies a topic was covered but doesn't name a question at all — infer the most likely question
+- type="answer": summarise what the candidate said, as described. Do NOT invent details not implied by the description. Keep it faithful to what they wrote, even if brief.
+
+For every answer segment, prepend "[Summary] " to the text so downstream scoring knows this is a description, not verbatim.
+Return ALL Q&A pairs you can identify. Every answer must be preceded by a question or inferred_question.
+
+Description:
+${chunk}`
+    : `Parse this PM interview transcript into segments. IMPORTANT: Process the COMPLETE transcript - do not stop early.
 
 Rules:
 - type="question": interviewer explicitly asked this (has "Interviewer:", "Q:", or is clearly a question from the other side)
@@ -71,8 +80,14 @@ Return ALL segments in order. Every answer must be preceded by a question or inf
 Do NOT truncate or stop before the end of the transcript.
 
 Transcript:
-${chunk}`,
-    }],
+${chunk}`
+
+  const message = await anthropic.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 8192,
+    tools: [TOOL],
+    tool_choice: { type: 'tool', name: 'submit_segments' },
+    messages: [{ role: 'user', content: prompt }],
   })
   const block = message.content.find(b => b.type === 'tool_use' && b.name === 'submit_segments')
   if (!block?.input?.segments) throw new Error('Classification failed for chunk')
@@ -81,7 +96,8 @@ ${chunk}`,
 
 export async function POST(request) {
   try {
-    const { transcript } = await request.json()
+    const body = await request.json()
+    const { transcript, inputType } = body
     if (!transcript || transcript.trim().length < 10) {
       return NextResponse.json({ error: 'Transcript too short' }, { status: 400 })
     }
@@ -90,7 +106,7 @@ export async function POST(request) {
     const chunks = chunkTranscript(transcript.slice(0, 125000))
 
     // Process all chunks in parallel then merge in order
-    const chunkResults = await Promise.all(chunks.map(chunk => classifyChunk(anthropic, chunk)))
+    const chunkResults = await Promise.all(chunks.map(chunk => classifyChunk(anthropic, chunk, inputType)))
     const segments = chunkResults.flat().map((s, i) => ({ ...s, id: `seg-${i}` }))
 
     return NextResponse.json({ segments })

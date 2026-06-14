@@ -125,7 +125,7 @@ function extractJSON(raw) {
 // ---------------------------------------------------------------------------
 // System prompt builder
 // ---------------------------------------------------------------------------
-function buildSystemPrompt({ hasJD, hasCV, company, role, experienceYears }) {
+function buildSystemPrompt({ hasJD, hasCV, company, role, experienceYears, isSummary }) {
   const seniority = {
     '0-2':  'junior / APM level - bar is potential, curiosity, and structured thinking over experience',
     '2-5':  'mid-level PM - bar is ownership, clear frameworks, and demonstrated impact',
@@ -219,7 +219,14 @@ User → Problem → Solution → Trade-offs → Metrics
 Rate how well the answer follows this flow as part of every evaluation.
 
 SCORING (be honest - most real interviews score 4-7):
-9-10: Textbook answer, would hire immediately. 7-8: Strong, minor gaps. 5-6: Competent but missing key elements. 3-4: Significant structural gaps. 1-2: Misunderstands the question type entirely.`
+9-10: Textbook answer, would hire immediately. 7-8: Strong, minor gaps. 5-6: Competent but missing key elements. 3-4: Significant structural gaps. 1-2: Misunderstands the question type entirely.${isSummary ? `
+
+SUMMARY MODE — IMPORTANT: The candidate provided a HIGH-LEVEL DESCRIPTION of their interview, not a verbatim transcript. Answers marked "[Summary]" are paraphrased recollections, not exact words.
+- Do NOT penalise for brevity or missing structural elements that may have been present but omitted from the summary
+- If a summary implies a framework was used (e.g. "I walked through user segmentation"), credit it even without full detail
+- Score the PM thinking quality evident from the description, not the completeness of the written text
+- In yourAnswer, begin with "Based on candidate description: " to signal summary context
+- Adjust whatMissed to focus only on gaps clearly implied by the description, not assumed omissions` : ''}` 
 }
 
 // ---------------------------------------------------------------------------
@@ -675,7 +682,7 @@ export async function POST(request) {
       return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
     }
 
-    const { transcript, segments: rawSegments, metadata } = body
+    const { transcript, segments: rawSegments, metadata, isSummary } = body
     if (!transcript || typeof transcript !== 'string' || transcript.trim().length < 10) {
       return NextResponse.json({ error: 'Transcript is missing or too short' }, { status: 400 })
     }
@@ -712,7 +719,7 @@ export async function POST(request) {
     const safeCV         = sanitiseInput(cvText).slice(0, 2000)
     const safePortfolio  = sanitiseInput(portfolioText).slice(0, 1500)
 
-    const systemPrompt = buildSystemPrompt({ hasJD, hasCV, company, role, experienceYears: metadata?.experienceYears })
+    const systemPrompt = buildSystemPrompt({ hasJD, hasCV, company, role, experienceYears: metadata?.experienceYears, isSummary: !!isSummary })
     if (systemPrompt.length < 500) {
       console.error('[analyze] System prompt suspiciously short')
       return NextResponse.json({ error: 'Server configuration error: system prompt malformed' }, { status: 500 })
