@@ -1496,29 +1496,36 @@ function AuthGate({ onClose }) {
 function detectInputType(text) {
   const t = text.trim()
   const lower = t.toLowerCase()
-  // Strong transcript signals
-  const hasTurnMarkers = /(interviewer|candidate|recruiter)\s*:/i.test(t) || /^\s*(q|me|i)\s*:/im.test(t)
-  if (hasTurnMarkers) return 'transcript'
-  // Dialogue pattern: short alternating lines (≥4 lines, avg < 120 chars)
-  const lines = t.split('\n').filter(l => l.trim().length > 0)
-  if (lines.length >= 4) {
-    const avg = t.length / lines.length
-    if (avg < 120) return 'transcript'
-  }
-  // Description signals: past tense narration of what happened
-  const descPatterns = [
-    /(they asked me|was asked|asked about|i was asked)/i,
-    /(i talked about|i mentioned|i explained|i discussed|i said)/i,
-    /(the interviewer|the recruiter|he asked|she asked)/i,
-    /(interview went|round was|session was|call was)/i,
+
+  // 1. STRONG TRANSCRIPT: explicit dialogue labels with colon
+  if (/(interviewer|candidate|recruiter|interviewee)\s*:/i.test(t)) return 'transcript'
+  if (/^\s*(q\d*|a\d*|me|you)\s*:/im.test(t)) return 'transcript'
+
+  // 2. STRONG DESCRIPTION: narration/past-tense signals, checked before structural heuristics
+  const descSignals = [
+    /the interviewer (asked|probed|wanted|focused|questioned|followed up|pushed|dug into)/i,
+    /the (recruiter|hiring manager) (asked|wanted|probed)/i,
+    /they asked (me|about|how|why|what|whether|to)/i,
+    /(he|she) asked (me|about|how|why|what|whether|to)/i,
+    /i (walked (them )?through|structured|framed|approached|outlined|explained|discussed|talked about|mentioned|suggested|said) (the|my|a|an|how|that|it|this)/i,
+    /a (second|third|final|follow-?up|next) (discussion|question|topic|round|part)/i,
+    /there was (also |an? )?(discussion|question|scenario|section|part|topic)/i,
+    /overall,?\s+(the interview|it felt|i felt|the session)/i,
+    /the interview (felt|went|was|focused on|seemed|covered|involved)/i,
+    /(the session|the call|the round|this round) (was|felt|went|covered)/i,
+    /i was asked (to|about|how|why|what)/i,
   ]
-  if (descPatterns.some(p => p.test(lower))) return 'description'
-  // Long dense text with no line breaks → probably a transcript blob
+  if (descSignals.some(p => p.test(lower))) return 'description'
+
+  // 3. STRUCTURAL: short alternating lines = dialogue
+  const lines = t.split('\n').filter(l => l.trim().length > 0)
+  if (lines.length >= 4 && (t.length / lines.length) < 120) return 'transcript'
+
+  // 4. WORD COUNT FALLBACK: lean toward description when ambiguous
+  //    (the confirm-type step lets users override cheaply)
   const wordCount = t.split(/\s+/).length
-  if (wordCount > 300 && lines.length < 6) return 'transcript'
-  // Short input with no dialogue markers → treat as description
-  if (wordCount < 150) return 'description'
-  return 'transcript'
+  if (wordCount < 80) return 'transcript'
+  return 'description'
 }
 
 export default function Home() {
