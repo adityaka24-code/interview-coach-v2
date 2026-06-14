@@ -1266,14 +1266,26 @@ function PredictTeaser() {
 }
 
 // ── PredictPanel ──────────────────────────────────────────────────────────────
+const PANEL_URL_RE = /^https?:\/\/\S{10,}$/i
+
 function PredictPanel() {
   const router = useRouter()
-  const [company, setCompany] = useState('')
-  const [roleLevel, setRoleLevel] = useState('PM')
-  const [roundType, setRoundType] = useState('loop')
-  const [jdText, setJdText] = useState('')
-  const [cvText, setCvText] = useState('')
-  const [error, setError] = useState('')
+  const [company, setCompany]               = useState('')
+  const [roleLevel, setRoleLevel]           = useState('PM')
+  const [roundType, setRoundType]           = useState('loop')
+  const [jdText, setJdText]                 = useState('')
+  // jdMode: 'empty'|'url-confirm'|'url-loading'|'review'|'confirmed'|'url-error'|'inferring'|'hint-error'|'full'
+  const [jdMode, setJdMode]                 = useState('empty')
+  const [jdPendingUrl, setJdPendingUrl]     = useState('')
+  const [jdReviewText, setJdReviewText]     = useState('')
+  const [jdReviewSource, setJdReviewSource] = useState('')
+  const [jdResolved, setJdResolved]         = useState('')
+  const [jdIsInferred, setJdIsInferred]     = useState(false)
+  const [cvText, setCvText]                 = useState('')
+  const [cvFileName, setCvFileName]         = useState('')
+  const [error, setError]                   = useState('')
+  const debounceRef = useRef(null)
+  const prevHintKey = useRef('')
 
   // Auto-load CV from profile on mount
   useEffect(() => {
@@ -1283,19 +1295,84 @@ function PredictPanel() {
       .catch(() => {})
   }, [])
 
-  const jdLen = jdText.trim().length
-  const cvWords = cvText.trim() ? cvText.trim().split(/\s+/).length : 0
-  const jdTooShort = jdLen < 50
+  const cvWords   = cvText.trim() ? cvText.trim().split(/\s+/).length : 0
   const cvTooLong = cvWords > 1000
+  const busy        = ['url-loading', 'inferring'].includes(jdMode)
+  const needsReview = ['url-confirm', 'review'].includes(jdMode)
+
+  // Detect URL immediately; debounce short descriptions for inference
+  useEffect(() => {
+    clearTimeout(debounceRef.current)
+    const t = jdText.trim()
+    if (!t) {
+      setJdMode('empty'); setJdResolved(''); setJdReviewText(''); setJdPendingUrl('')
+      prevHintKey.current = ''; return
+    }
+    if (t.length >= 250) {
+      setJdMode('full'); setJdResolved(t); setJdReviewText(''); setJdIsInferred(false); return
+    }
+    if (PANEL_URL_RE.test(t)) {
+      setJdPendingUrl(t); setJdMode('url-confirm'); return
+    }
+    // Short role description — debounce then infer
+    debounceRef.current = setTimeout(async () => {
+      const key = `${company}|${roleLevel}|${t}`
+      if (key === prevHintKey.current) return
+      prevHintKey.current = key
+      setJdMode('inferring'); setJdResolved(''); setJdReviewText('')
+      try {
+        const res  = await fetch('/api/infer-jd', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ company, roleLevel, roleHint: t }),
+        })
+        const data = await res.json()
+        if (data.error) throw new Error(data.error)
+        setJdReviewText(data.jdText); setJdReviewSource('inferred'); setJdMode('review')
+      } catch { setJdMode('hint-error'); setJdResolved(t) }
+    }, 900)
+    return () => clearTimeout(debounceRef.current)
+  }, [jdText, company, roleLevel])
+
+  async function handleFetchUrl() {
+    setJdMode('url-loading')
+    try {
+      const res  = await fetch('/api/fetch-url', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: jdPendingUrl }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setJdReviewText(data.text.slice(0, 3500)); setJdReviewSource('url'); setJdMode('review')
+    } catch { setJdMode('url-error') }
+  }
+
+  function handleConfirmJd() {
+    setJdResolved(jdReviewText); setJdIsInferred(jdReviewSource === 'inferred'); setJdMode('confirmed')
+  }
+
+  function handleClearJd() {
+    setJdText(''); setJdMode('empty'); setJdResolved('')
+    setJdReviewText(''); setJdPendingUrl(''); prevHintKey.current = ''
+  }
+
+  function handleJdChange(e) {
+    setJdText(e.target.value)
+    if (['confirmed', 'review', 'url-confirm'].includes(jdMode)) {
+      setJdMode('empty'); setJdResolved(''); setJdReviewText(''); setJdPendingUrl('')
+      prevHintKey.current = ''
+    }
+  }
 
   function handleSubmit() {
     if (!company.trim() || !roleLevel.trim() || !roundType.trim()) {
-      setError('Company, role level and round type are required.')
-      return
+      setError('Company, role level and round type are required.'); return
     }
-    if (jdTooShort) { setError('Job description must be at least 50 characters.'); return }
-    if (cvTooLong) { setError(`CV is too long — remove ${cvWords - 1000} words (${cvWords}/1000).`); return }
-    sessionStorage.setItem('predict-params', JSON.stringify({ company, roleLevel, roundType, jdText, cvText }))
+    if (cvTooLong) { setError(`CV is too long — remove ${cvWords - 1000} words.`); return }
+    setError('')
+    const jdFinal = jdMode === 'confirmed' ? jdResolved : jdMode === 'full' ? jdText : ''
+    sessionStorage.setItem('predict-params', JSON.stringify({
+      company, roleLevel, roundType, jdText: jdFinal, jdIsInferred, cvText,
+    }))
     router.push('/predict/loading')
   }
 
@@ -1309,7 +1386,46 @@ function PredictPanel() {
     textTransform: 'uppercase', display: 'block', marginBottom: 6, fontFamily: 'DM Mono',
   }
 
+  const urlDisplay = jdPendingUrl.length > 55 ? jdPendingUrl.slice(0, 52) + '…' : jdPendingUrl
+
   return (
+    <>
+    {/* URL confirmation modal */}
+    {jdMode === 'url-confirm' && (
+      <div role="dialog" aria-modal="true" style={{
+        position: 'fixed', inset: 0, zIndex: 400,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(5px)',
+      }}>
+        <div style={{
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: 14, padding: '28px 30px', maxWidth: 460, width: '92%',
+          boxShadow: '0 24px 64px rgba(0,0,0,0.5)',
+        }}>
+          <p style={{ fontFamily: 'DM Mono', fontSize: 10, color: 'var(--text-muted)', letterSpacing: '1.5px', textTransform: 'uppercase', margin: '0 0 8px' }}>Job link detected</p>
+          <h3 style={{ fontFamily: 'Montserrat', fontSize: 18, color: 'var(--text)', margin: '0 0 12px', fontWeight: 600 }}>Fetch JD from this link?</h3>
+          <div style={{ fontFamily: 'DM Mono', fontSize: 11, color: 'var(--accent)', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 6, padding: '7px 10px', margin: '0 0 14px', wordBreak: 'break-all', lineHeight: 1.6 }}>
+            {urlDisplay}
+          </div>
+          <p style={{ fontFamily: 'Open Sans', fontSize: 13, color: 'var(--text-muted)', margin: '0 0 20px', lineHeight: 1.65 }}>
+            We'll scrape the page and show you the extracted JD to review before running the analysis. Some career sites block automated access — if it fails, paste the JD text directly.
+          </p>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button onClick={handleFetchUrl} style={{
+              flex: 1, padding: '10px 0', background: 'linear-gradient(135deg,#1d4ed8,#2563eb)',
+              color: '#fff', border: 'none', borderRadius: 8,
+              fontFamily: 'DM Mono', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+            }}>Fetch JD</button>
+            <button onClick={handleClearJd} style={{
+              flex: 1, padding: '10px 0', background: 'var(--surface2)',
+              color: 'var(--text)', border: '1px solid var(--border)', borderRadius: 8,
+              fontFamily: 'DM Mono', fontSize: 13, cursor: 'pointer',
+            }}>Enter JD manually</button>
+          </div>
+        </div>
+      </div>
+    )}
+
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 32, alignItems: 'stretch', animation: 'fadeUp 0.3s ease' }}>
 
       {/* LEFT — form card */}
@@ -1327,7 +1443,7 @@ function PredictPanel() {
         <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', flex: 1 }}>
 
           {/* Row 1: Company / Role / Round */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 14 }}>
             <div>
               <label style={pLabel}>Company *</label>
               <input value={company} onChange={e => setCompany(e.target.value)} placeholder="e.g. Stripe" style={pInput} />
@@ -1358,75 +1474,138 @@ function PredictPanel() {
             </div>
           </div>
 
-          {/* Equal-height pair — grid rows guarantee both get identical height */}
-          <div style={{ flex: 1, display: 'grid', gridTemplateRows: '1fr 1fr', gap: 14, marginBottom: 10, minHeight: 0 }}>
-
-            {/* JD text */}
-            <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
-                <label style={{ ...pLabel, margin:0 }}>Job description (paste text) <span style={{ color:'var(--danger)', fontWeight:400 }}>*</span></label>
-                <span style={{ fontSize:11, fontFamily:'DM Mono', color: jdTooShort ? 'var(--danger)' : 'var(--success)' }}>
-                  {jdLen} / 50 min chars{jdLen >= 50 ? ' ✓' : ''}
-                </span>
-              </div>
-              <textarea value={jdText} onChange={e => setJdText(e.target.value)}
-                placeholder="Paste the JD here — the more detail, the sharper the prediction."
-                style={{ ...pInput, resize: 'none', lineHeight: 1.6, flex: 1, minHeight: 0,
-                  borderColor: jdTooShort && jdLen > 0 ? 'var(--danger)' : undefined }} />
+          {/* JD field */}
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+              <label style={{ ...pLabel, margin: 0 }}>
+                JD · job link · org / role{' '}
+                <span style={{ color: 'var(--text-muted)', fontWeight: 400, textTransform: 'none', letterSpacing: 0, fontSize: 11 }}>(optional)</span>
+              </label>
+              {jdMode === 'confirmed' && (
+                <button onClick={handleClearJd} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'DM Mono', fontSize: 10, color: 'var(--text-muted)', textDecoration: 'underline', padding: 0 }}>Change</button>
+              )}
+              {jdMode === 'full' && (
+                <span style={{ fontSize: 11, fontFamily: 'DM Mono', color: 'var(--success)' }}>{jdText.trim().length} chars ✓</span>
+              )}
+            </div>
+            <textarea
+              value={jdText}
+              onChange={handleJdChange}
+              readOnly={jdMode === 'confirmed'}
+              placeholder={'Paste JD, job link (https://…), or role description — e.g. "Inventory planning PM at Amazon"'}
+              rows={jdMode === 'confirmed' ? 2 : 3}
+              style={{
+                ...pInput, resize: 'none', lineHeight: 1.6,
+                borderColor:
+                  (jdMode === 'url-error' || jdMode === 'hint-error') ? 'var(--danger)'
+                  : jdMode === 'confirmed' ? 'rgba(104,211,145,0.4)'
+                  : jdMode === 'review'    ? 'var(--accent)'
+                  : undefined,
+                opacity: jdMode === 'confirmed' ? 0.55 : 1,
+              }}
+            />
+            {/* Status line */}
+            <div style={{ fontFamily: 'DM Mono', fontSize: 10, marginTop: 4, minHeight: 14 }}>
+              {jdMode === 'empty'      && <span style={{ color: 'var(--text-muted)' }}>Optional — leave blank to predict from company + role only</span>}
+              {jdMode === 'url-loading'&& <span style={{ color: 'var(--text-muted)' }}>⟳ Fetching JD…</span>}
+              {jdMode === 'url-error'  && <span style={{ color: 'var(--danger)' }}>Fetch failed — paste JD directly or <button onClick={handleClearJd} style={{ background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'DM Mono', fontSize: 10, color: 'var(--danger)', textDecoration: 'underline', padding: 0 }}>clear</button></span>}
+              {jdMode === 'inferring'  && <span style={{ color: 'var(--text-muted)' }}>⟳ Synthesizing JD from role description…</span>}
+              {jdMode === 'hint-error' && <span style={{ color: 'var(--danger)' }}>Synthesis failed — predicting from brief description as-is</span>}
+              {jdMode === 'confirmed'  && <span style={{ color: 'var(--success)' }}>✓ JD confirmed · {jdResolved.length} chars{jdIsInferred ? ' · synthesized' : jdReviewSource === 'url' ? ' · from link' : ''}</span>}
             </div>
 
-            {/* CV text */}
-            <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
-                <label style={{ ...pLabel, margin: 0 }}>Your CV / résumé</label>
-                <span style={{ fontSize:11, fontFamily:'DM Mono', color: cvTooLong ? 'var(--danger)' : cvWords > 0 ? 'var(--success)' : 'var(--text-muted)' }}>
-                  {cvWords} / 1000 words{cvTooLong ? ' — too long' : cvWords > 0 ? ' ✓' : ''}
-                </span>
+            {/* JD review card */}
+            {jdMode === 'review' && (
+              <div style={{ marginTop: 8, border: '1px solid var(--accent)', borderRadius: 9, overflow: 'hidden', boxShadow: '0 0 0 2px rgba(99,179,237,0.1)' }}>
+                <div style={{ padding: '7px 12px', background: 'rgba(99,179,237,0.07)', borderBottom: '1px solid rgba(99,179,237,0.2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontFamily: 'DM Mono', fontSize: 10, color: 'var(--accent)' }}>
+                    {jdReviewSource === 'url' ? '✦ JD from link' : '✦ JD synthesized'} — review &amp; confirm
+                  </span>
+                  <span style={{ fontFamily: 'DM Mono', fontSize: 10, color: 'var(--text-muted)' }}>{jdReviewText.length} chars · editable</span>
+                </div>
+                <textarea
+                  rows={5}
+                  value={jdReviewText}
+                  onChange={e => setJdReviewText(e.target.value)}
+                  style={{ ...pInput, resize: 'none', border: 'none', borderRadius: 0, borderBottom: '1px solid var(--border)', fontSize: 12, lineHeight: 1.6 }}
+                />
+                <div style={{ display: 'flex', gap: 8, padding: '10px 12px', background: 'var(--surface2)' }}>
+                  <button onClick={handleConfirmJd} style={{
+                    flex: 1, padding: '8px 0', background: 'linear-gradient(135deg,#1d4ed8,#2563eb)',
+                    color: '#fff', border: 'none', borderRadius: 6,
+                    fontFamily: 'DM Mono', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+                  }}>Use this JD ✓</button>
+                  <button onClick={handleClearJd} style={{
+                    flex: 1, padding: '8px 0', background: 'transparent',
+                    color: 'var(--text-muted)', border: '1px solid var(--border)', borderRadius: 6,
+                    fontFamily: 'DM Mono', fontSize: 12, cursor: 'pointer',
+                  }}>Clear, I'll type it</button>
+                </div>
               </div>
-              <textarea value={cvText} onChange={e => setCvText(e.target.value)}
-                placeholder="Paste your CV text — used to surface gaps between your background and the role."
-                style={{ ...pInput, resize: 'none', lineHeight: 1.6, flex: 1, minHeight: 0,
-                  borderColor: cvTooLong ? 'var(--danger)' : undefined }} />
-            </div>
-
+            )}
           </div>
 
-          {/* File drop — fixed height, outside the growing area so it doesn't steal from textareas */}
+          {/* CV field — FileDropZone ABOVE textarea */}
           <div style={{ marginBottom: 10 }}>
-            <FileDropZone onText={text => setCvText(text)} label="or drop CV / PDF / DOCX here" />
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+              <label style={{ ...pLabel, margin: 0 }}>Your CV / résumé *</label>
+              <span style={{ fontSize: 11, fontFamily: 'DM Mono', color: cvTooLong ? 'var(--danger)' : cvWords > 0 ? 'var(--success)' : 'var(--text-muted)' }}>
+                {cvWords} / 1000 words{cvTooLong ? ' — too long' : cvWords > 0 ? ' ✓' : ''}
+              </span>
+            </div>
+            <div style={{ marginBottom: 6 }}>
+              <FileDropZone
+                onFile={async (file) => {
+                  const fd = new FormData(); fd.append('file', file)
+                  const res = await fetch('/api/parse-file', { method: 'POST', body: fd })
+                  const d = await res.json()
+                  if (d.text) { setCvText(d.text); setCvFileName(file.name) }
+                }}
+                accept=".pdf,.doc,.docx"
+                label="Upload CV (PDF / DOCX)"
+              />
+              {cvFileName && <div style={{ fontSize: 11, color: 'var(--success)', marginTop: 4, fontFamily: 'DM Mono' }}>✓ {cvFileName}</div>}
+            </div>
+            <textarea value={cvText} onChange={e => setCvText(e.target.value)}
+              placeholder="Or paste your CV text here (max 1,000 words)"
+              rows={4}
+              style={{ ...pInput, resize: 'none', lineHeight: 1.6, borderColor: cvTooLong ? 'var(--danger)' : undefined }} />
           </div>
 
           {error && (
-            <p role="alert" style={{ padding: '10px 14px', background: 'rgba(248,81,73,0.06)', border: '1px solid rgba(248,81,73,0.2)', borderRadius: 8, fontSize: 13, color: 'var(--danger)', marginBottom: 14 }}>
+            <p role="alert" style={{ padding: '10px 14px', background: 'rgba(248,81,73,0.06)', border: '1px solid rgba(248,81,73,0.2)', borderRadius: 8, fontSize: 13, color: 'var(--danger)', marginBottom: 10 }}>
               ⚠ {error}
             </p>
           )}
+
           <button onClick={handleSubmit}
+            disabled={busy || needsReview}
             style={{
               width: '100%', padding: '15px 20px',
-              background: 'linear-gradient(135deg, #1d4ed8 0%, #2563eb 50%, #3b82f6 100%)',
-              border: '1px solid rgba(255,255,255,0.15)',
+              background: (busy || needsReview) ? 'var(--surface2)' : 'linear-gradient(135deg, #1d4ed8 0%, #2563eb 50%, #3b82f6 100%)',
+              border: (busy || needsReview) ? '1px solid var(--border)' : '1px solid rgba(255,255,255,0.15)',
               borderRadius: 12,
-              color: '#ffffff',
+              color: (busy || needsReview) ? 'var(--text-muted)' : '#ffffff',
               fontSize: 15, fontFamily: 'DM Mono', fontWeight: 800,
               letterSpacing: '0.3px',
-              cursor: 'pointer',
-              boxShadow: '0 4px 24px rgba(37,99,235,0.5), 0 1px 0 rgba(255,255,255,0.15) inset',
+              cursor: (busy || needsReview) ? 'not-allowed' : 'pointer',
+              boxShadow: (busy || needsReview) ? 'none' : '0 4px 24px rgba(37,99,235,0.5), 0 1px 0 rgba(255,255,255,0.15) inset',
               transition: 'transform 0.12s ease, box-shadow 0.12s ease',
-              textShadow: '0 1px 2px rgba(0,0,0,0.3)',
+              textShadow: (busy || needsReview) ? 'none' : '0 1px 2px rgba(0,0,0,0.3)',
             }}
             onMouseEnter={e => {
+              if (busy || needsReview) return
               e.currentTarget.style.transform = 'translateY(-1px)'
               e.currentTarget.style.boxShadow = '0 8px 32px rgba(37,99,235,0.65), 0 1px 0 rgba(255,255,255,0.15) inset'
             }}
             onMouseLeave={e => {
               e.currentTarget.style.transform = 'translateY(0)'
-              e.currentTarget.style.boxShadow = '0 4px 24px rgba(37,99,235,0.5), 0 1px 0 rgba(255,255,255,0.15) inset'
+              e.currentTarget.style.boxShadow = (busy || needsReview) ? 'none' : '0 4px 24px rgba(37,99,235,0.5), 0 1px 0 rgba(255,255,255,0.15) inset'
             }}
-            onMouseDown={e => { e.currentTarget.style.transform = 'translateY(1px)' }}
-            onMouseUp={e => { e.currentTarget.style.transform = 'translateY(-1px)' }}
+            onMouseDown={e => { if (!busy && !needsReview) e.currentTarget.style.transform = 'translateY(1px)' }}
+            onMouseUp={e => { if (!busy && !needsReview) e.currentTarget.style.transform = 'translateY(-1px)' }}
           >
-            ✦ Predict my questions + callback probability →
+            {busy ? 'Preparing JD…' : needsReview ? 'Confirm JD above first ↑' : '✦ Predict my questions + callback probability →'}
           </button>
         </div>
       </div>
@@ -1435,6 +1614,7 @@ function PredictPanel() {
       <PredictTeaser />
 
     </div>
+    </>
   )
 }
 
