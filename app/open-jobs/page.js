@@ -176,7 +176,7 @@ export default function OpenJobsPage() {
               {filtered.map((job, i) => {
                 const isNew = job.status === 'New'
                 return (
-                  <tr key={job.link} style={{
+                  <tr key={job.id} style={{
                     background: isNew ? 'rgba(104,211,145,0.04)' : i % 2 === 0 ? 'var(--card-bg)' : 'var(--bg-secondary)',
                     borderBottom: '1px solid var(--border)',
                     transition: 'background 0.1s',
