@@ -6,12 +6,13 @@ export async function GET() {
     await initSchema()
     const db = getDb()
     const res = await db.execute({
-      sql: `SELECT company, company_rank AS rank, title, location, link, status, first_seen, date_posted, updated_at
+      sql: `SELECT id, company, company_rank AS rank, title, location, link, status, first_seen, date_posted, updated_at
             FROM open_jobs
             ORDER BY CASE WHEN company_rank IS NULL THEN 1 ELSE 0 END, company_rank ASC, company ASC`,
       args: [],
     })
     const jobs = res.rows.map(r => ({
+      id: r.id,
       company: r.company,
       rank: r.rank,
       title: r.title,
