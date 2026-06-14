@@ -142,14 +142,14 @@ export default function PredictLoadingPage() {
       return
     }
 
-    const { company, roleLevel, roundType, jdText, cvText } = params
+    const { company, roleLevel, roundType, jdText, cvText, jdIsInferred } = params
 
     async function run() {
       try {
         const res = await fetch('/api/predict', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ jdText, cvText, roleLevel, roundType, company }),
+          body: JSON.stringify({ jdText, cvText, roleLevel, roundType, company, jdIsInferred }),
         })
 
         if (!res.ok || !res.body) {

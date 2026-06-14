@@ -321,12 +321,12 @@ export async function POST(request) {
   try { body = await request.json() } catch {
     return new Response('{"error":"Invalid JSON"}', { status: 400, headers: { 'Content-Type': 'application/json' } })
   }
-  const { jdText, cvText, roleLevel, roundType, company } = body
-  if (!jdText || !cvText) {
-    return new Response('{"error":"jdText and cvText are required"}', { status: 400, headers: { 'Content-Type': 'application/json' } })
+  const { jdText, cvText, roleLevel, roundType, company, jdIsInferred } = body
+  if (!cvText) {
+    return new Response('{"error":"cvText is required"}', { status: 400, headers: { 'Content-Type': 'application/json' } })
   }
 
-  const jd = jdText.slice(0, 4000)
+  const jd = (jdText || '').slice(0, 4000)
   const cv = cvText.slice(0, 6000)
 
   // userId — optional (predictions work without auth)
@@ -391,7 +391,14 @@ export async function POST(request) {
       top10.map((q, i) => `${i + 1}. [${q.question_type}] ${q.question}`).join('\n')
   }
 
-  const systemBase = `You are a world-class PM interview coach. Given a job description and candidate CV, your job is to help the candidate prepare.`
+  const systemBase = [
+    'You are a world-class PM interview coach. Given a job description and candidate CV, your job is to help the candidate prepare.',
+    !jd
+      ? 'NOTE: No job description was provided. Generate likely questions based on the company name, role level, and typical industry patterns for this type of role.'
+      : jdIsInferred
+        ? 'NOTE: The job description below was synthesized from a brief role description — treat it as a best-estimate JD, not an official posting.'
+        : '',
+  ].filter(Boolean).join('\n')
 
   const ctx = { systemBase, retrievalContext, jd, cv, roleLevel, roundType, company }
 
