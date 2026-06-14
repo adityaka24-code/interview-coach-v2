@@ -1501,7 +1501,7 @@ function detectInputType(text) {
   if (/(interviewer|candidate|recruiter|interviewee)\s*:/i.test(t)) return 'transcript'
   if (/^\s*(q\d*|a\d*|me|you)\s*:/im.test(t)) return 'transcript'
 
-  // 2. STRONG DESCRIPTION: narration/past-tense signals, checked before structural heuristics
+  // 2. STRONG DESCRIPTION: narration/past-tense meta-language
   const descSignals = [
     /the interviewer (asked|probed|wanted|focused|questioned|followed up|pushed|dug into)/i,
     /the (recruiter|hiring manager) (asked|wanted|probed)/i,
@@ -1517,14 +1517,31 @@ function detectInputType(text) {
   ]
   if (descSignals.some(p => p.test(lower))) return 'description'
 
-  // 3. STRUCTURAL: short alternating lines = dialogue
+  // 3. SHORT ALTERNATING LINES: dense dialogue with short turns
   const lines = t.split('\n').filter(l => l.trim().length > 0)
   if (lines.length >= 4 && (t.length / lines.length) < 120) return 'transcript'
 
-  // 4. WORD COUNT FALLBACK: lean toward description when ambiguous
-  //    (the confirm-type step lets users override cheaply)
+  // 4. Q&A PARAGRAPH PATTERN: unlabelled dialogue where paragraphs alternate
+  //    between question-like openers and answer-like openers.
+  //    Catches verbatim transcripts without any turn markers (e.g. cleaned-up recordings).
+  const paras = t.split(/\n+/).map(p => p.trim()).filter(p => p.length > 10)
+  if (paras.length >= 4) {
+    const qParas = paras.filter(p =>
+      /^(how |what |why |tell me|imagine |suppose |let.s |can you |walk me|when |where |if you |who |is there|are there|describe|okay so|so tell|great so|interesting|alright)/i.test(p)
+    )
+    const aParas = paras.filter(p =>
+      /^(i |my |sure|yes[,. ]|no[,. ]|that |we |first |this |there |the first|to start|one thing|in my|so i |so my|great question|absolutely|definitely|of course)/i.test(p)
+    )
+    if (qParas.length >= 2 && aParas.length >= 2) return 'transcript'
+  }
+
+  // 5. WORD COUNT FALLBACK
   const wordCount = t.split(/\s+/).length
+  // Very short text without signals = lean transcript (brief exchange)
   if (wordCount < 80) return 'transcript'
+  // Long text with no description signals and no Q&A structure is ambiguous,
+  // but very long unlabelled text is more likely a raw transcript dump than a description.
+  if (wordCount > 350) return 'transcript'
   return 'description'
 }
 
